@@ -1,0 +1,33 @@
+# Node.js dependencies
+node_modules/
+package-lock.json
+
+# Baileys auth files and user data
+auth/
+auth_info/
+data/
+
+# Environment variables
+.env
+!.env.example
+
+# Python
+__pycache__/
+venv/
+*.pyc
+*.pyo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# IDE specific files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace

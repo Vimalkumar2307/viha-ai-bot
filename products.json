@@ -1,0 +1,119 @@
+{
+  "business_info": {
+    "name": "Viha Return Gifts",
+    "owner": "Viha",
+    "description": "We provide unique return gifts for all occasions",
+    "contact": "WhatsApp",
+    "location": "Chennai"
+  },
+  
+  "products": [
+    {
+      "id": "1",
+      "name": "Seed Balls",
+      "category": "Eco-Friendly",
+      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554071/seed_balls_kghgie.jpg",
+      "description": "Eco-friendly plantable seed balls - perfect green gift",
+      "min_order": 100,
+      "pricing": [
+        {
+          "quantity_range": "100+ pieces",
+          "price_per_piece": 20
+        }
+      ]
+    },
+    
+    {
+      "id": "2",
+      "name": "Peacock Potli Bags",
+      "category": "Premium Traditional",
+      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/peacock_potli_bags_wur2sp.jpg",
+      "description": "Premium peacock design potli bags for special occasions",
+      "min_order": 50,
+      "pricing": [
+        {
+          "quantity_range": "50+ pieces",
+          "price_per_piece": 30
+        }
+      ]
+    },
+    
+    {
+      "id": "3",
+      "name": "Krishna Fridge Magnet",
+      "category": "Religious Gifts",
+      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/krishna_fridgemagent_zfigjw.jpg",
+      "description": "Beautiful Krishna magnets for religious occasions",
+      "min_order": 25,
+      "pricing": [
+        {
+          "quantity_range": "25-49 pieces",
+          "price_per_piece": 40
+        },
+        {
+          "quantity_range": "50+ pieces",
+          "price_per_piece": 38
+        }
+      ]
+    },
+    
+    {
+      "id": "4",
+      "name": "Plastic Snack Box",
+      "category": "Kids Gifts",
+      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/plastic_snack_box_e1pwbb.jpg",
+      "description": "Colorful snack boxes for kids birthday parties - sold ONLY in complete packs of 12",
+      "min_order": 24,
+      "unit": "pack of 12 pieces",
+      "special_rule": "MUST order in multiples of 12 only (24, 36, 48, 60, etc.)",
+      "pricing": [
+        {
+          "quantity_range": "24 pieces (2 packs)",
+          "price_per_piece": 45
+        },
+        {
+          "quantity_range": "36-48 pieces (3-4 packs)",
+          "price_per_piece": 40
+        },
+        {
+          "quantity_range": "60+ pieces (5+ packs)",
+          "price_per_piece": 35
+        }
+      ]
+    },
+    
+    {
+      "id": "5",
+      "name": "Potli Bags",
+      "category": "Traditional",
+      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/potli_bags_fifty_isefv2.jpg",
+      "description": "Traditional colorful potli bags for Indian weddings",
+      "min_order": 35,
+      "pricing": [
+        {
+          "quantity_range": "35+ pieces",
+          "price_per_piece": 50
+        }
+      ]
+    },
+    
+    {
+      "id": "6",
+      "name": "Hand Purse",
+      "category": "Accessories",
+      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/hand_purse_twlj2u.jpg",
+      "description": "Beautiful handcrafted purses for weddings and parties",
+      "min_order": 25,
+      "pricing": [
+        {
+          "quantity_range": "25-49 pieces",
+          "price_per_piece": 60
+        },
+        {
+          "quantity_range": "50+ pieces",
+          "price_per_piece": 50
+        }
+      ]
+    }
+  ]
+}

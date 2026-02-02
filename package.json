@@ -1,0 +1,26 @@
+{
+  "name": "viha-bot-baileys",
+  "version": "1.0.0",
+  "description": "WhatsApp Bot using Baileys for Render deployment",
+  "main": "vihaBot.js",
+  "scripts": {
+    "start": "node vihaBot.js",
+    "dev": "nodemon vihaBot.js"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "axios": "^1.13.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "mongodb": "^6.17.0",
+    "pino": "^8.16.1",
+    "qrcode": "^1.5.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "render": {
+    "serviceName": "viha-bot-baileys"
+  }
+}
