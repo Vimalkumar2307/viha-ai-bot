@@ -4,7 +4,7 @@
 
 const axios = require('axios');
 
-const LLM_API_URL = process.env.LLM_API_URL || 'http://localhost:8000';
+const LLM_API_URL = process.env.LLM_API_URL || 'http://127.0.0.1:8000';
 
 /**
  * Call LangChain Complete Bot API

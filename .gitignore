@@ -1,33 +1,43 @@
-# Node.js dependencies
-node_modules/
-package-lock.json
-
-# Baileys auth files and user data
-auth/
-auth_info/
-data/
-
-# Environment variables
+# Environment variables - CRITICAL!
 .env
-!.env.example
+*.env
+.env.local
+.env.production
+node_service/.env
+python_service/.env
+
+# WhatsApp authentication - CRITICAL!
+auth_info/
+node_service/auth_info/
+auth_info_baileys/
 
 # Python
 __pycache__/
-venv/
 *.pyc
 *.pyo
+venv/
+env/
+*.egg-info/
+python_service/__pycache__/
+viha_bot_langchain/
 
-# Logs
-logs/
-*.log
-npm-debug.log*
+# Node
+node_modules/
+node_service/node_modules/
+npm-debug.log
+package-lock.json
+node_service/package-lock.json
 
-# OS specific files
+# Database
+*.db
+*.sqlite
+
+# IDE
+.vscode/
+.idea/
+.zencoder/
+.zenflow/
+
+# OS
 .DS_Store
 Thumbs.db
-
-# IDE specific files
-.idea/
-.vscode/
-*.sublime-project
-*.sublime-workspace

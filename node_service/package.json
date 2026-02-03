@@ -1,10 +1,10 @@
 {
-  "name": "viha-whatsapp-bot-combined",
+  "name": "viha-bot-node-service",
   "version": "2.2.0",
-  "description": "WhatsApp AI Bot for Viha Return Gifts - Combined Service",
-  "main": "start.sh",
+  "description": "WhatsApp interface for Viha Bot",
+  "main": "vihaBot.js",
   "scripts": {
-    "start": "bash start.sh"
+    "start": "node vihaBot.js"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",
