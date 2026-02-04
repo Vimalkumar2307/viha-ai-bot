@@ -1202,30 +1202,25 @@ def build_production_graph():
     workflow.add_edge("search_products", "recommend")
     workflow.add_edge("recommend", END)
     
-    # ✅ Setup PostgreSQL checkpointer properly
-    # ✅ Setup PostgreSQL checkpointer with CONNECTION POOL (auto-reconnects)
+    # ✅ Setup PostgreSQL checkpointer - LAZY CONNECTION for Render
     db_url = os.getenv("SUPABASE_DB_URL")
 
-    # Create connection pool instead of single connection
-    # This auto-reconnects when connections close (idle timeout, network issues)
-    connection_pool = ConnectionPool(
-        db_url,
-        min_size=1,      # Keep 1 connection always ready
-        max_size=10,     # Allow up to 10 concurrent connections
-        timeout=30,      # Wait 30s if all connections busy
-        kwargs={"autocommit": True}
-    )
-
-    # Create checkpointer from pool
     from langgraph.checkpoint.postgres import PostgresSaver as BaseSaver
-    
-    # First, run setup with a temporary connection
-    with connection_pool.connection() as conn:
+
+    # Create a simple connection (no pool) for setup
+    try:
+        # Try to setup tables (but don't fail if can't connect immediately)
+        conn = psycopg.connect(db_url, autocommit=True, connect_timeout=10)
         checkpointer = BaseSaver(conn)
         checkpointer.setup()
-    
-    # Then, give the pool to checkpointer for ongoing use
-    checkpointer = BaseSaver(connection_pool)
+        conn.close()
+        print("✅ Supabase checkpointer initialized")
+    except Exception as e:
+        print(f"⚠️ Supabase connection warning: {e}")
+        print("   Bot will try to reconnect when needed")
+
+    # Create checkpointer with connection string (connects lazily)
+    checkpointer = BaseSaver.from_conn_string(db_url)
 
     return workflow.compile(checkpointer=checkpointer)
 
