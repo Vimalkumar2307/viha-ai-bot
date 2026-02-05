@@ -1207,30 +1207,37 @@ def build_production_graph():
 
     if not db_url:
         print("❌ CRITICAL: SUPABASE_DB_URL not found!")
-        raise ValueError("SUPABASE_DB_URL is required for persistence")
+        raise ValueError("SUPABASE_DB_URL is required")
 
     try:
         print("🔄 Connecting to Supabase PostgreSQL...")
-        
+
+        # Create connection pool (Render-safe)
+        pool = ConnectionPool(
+            conninfo=db_url,
+            max_size=3,
+            timeout=10,
+            kwargs={"autocommit": True},
+        )
+
         # One-time setup (create tables)
-        conn = psycopg.connect(db_url, autocommit=True, connect_timeout=10)
-        
-        from langgraph.checkpoint.postgres import PostgresSaver
-        checkpointer = PostgresSaver(conn)
-        checkpointer.setup()
-        
-        # Test connection
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        cursor.close()
-        
+        with pool.connection() as conn:
+            checkpointer = PostgresSaver(conn)
+            checkpointer.setup()
+
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT 1")
+
         print("✅ Supabase PostgreSQL connected!")
         print("   Conversations will persist across restarts")
-        
+
     except Exception as e:
-        print(f"❌ CRITICAL: Database connection failed!")
+        print("❌ CRITICAL: Database connection failed!")
         print(f"   Error: {str(e)[:200]}")
-        raise  # Stop bot - persistence is required
+        raise  # Stop app if DB is unavailable
+
+    # IMPORTANT: pass POOL, not single connection
+    checkpointer = PostgresSaver(pool)
 
     return workflow.compile(checkpointer=checkpointer)
 
