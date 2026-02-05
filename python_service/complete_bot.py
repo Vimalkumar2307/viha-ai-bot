@@ -1202,25 +1202,35 @@ def build_production_graph():
     workflow.add_edge("search_products", "recommend")
     workflow.add_edge("recommend", END)
     
-    # ✅ Setup PostgreSQL checkpointer - LAZY CONNECTION for Render
+    # ✅ Setup PostgreSQL checkpointer - Production-ready for Render
     db_url = os.getenv("SUPABASE_DB_URL")
 
-    from langgraph.checkpoint.postgres import PostgresSaver as BaseSaver
+    if not db_url:
+        print("❌ CRITICAL: SUPABASE_DB_URL not found!")
+        raise ValueError("SUPABASE_DB_URL is required for persistence")
 
-    # Create a simple connection (no pool) for setup
     try:
-        # Try to setup tables (but don't fail if can't connect immediately)
+        print("🔄 Connecting to Supabase PostgreSQL...")
+        
+        # One-time setup (create tables)
         conn = psycopg.connect(db_url, autocommit=True, connect_timeout=10)
-        checkpointer = BaseSaver(conn)
+        
+        from langgraph.checkpoint.postgres import PostgresSaver
+        checkpointer = PostgresSaver(conn)
         checkpointer.setup()
-        conn.close()
-        print("✅ Supabase checkpointer initialized")
+        
+        # Test connection
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.close()
+        
+        print("✅ Supabase PostgreSQL connected!")
+        print("   Conversations will persist across restarts")
+        
     except Exception as e:
-        print(f"⚠️ Supabase connection warning: {e}")
-        print("   Bot will try to reconnect when needed")
-
-    # Create checkpointer with connection string (connects lazily)
-    checkpointer = BaseSaver.from_conn_string(db_url)
+        print(f"❌ CRITICAL: Database connection failed!")
+        print(f"   Error: {str(e)[:200]}")
+        raise  # Stop bot - persistence is required
 
     return workflow.compile(checkpointer=checkpointer)
 
