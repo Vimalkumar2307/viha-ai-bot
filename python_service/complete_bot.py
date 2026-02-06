@@ -1215,6 +1215,7 @@ def build_production_graph():
         # Create connection pool (Render-safe)
         pool = ConnectionPool(
             conninfo=db_url,
+            min_size=1, 
             max_size=3,
             timeout=10,
             kwargs={"autocommit": True},
