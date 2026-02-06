@@ -1,10 +1,22 @@
 /**
  * LLM Client Module - Updated with product support
+ * Production-ready for Render deployment
  */
 
 const axios = require('axios');
 
-const LLM_API_URL = process.env.LLM_API_URL || 'http://127.0.0.1:8000';
+// ✅ PRODUCTION: No localhost fallback
+const LLM_API_URL = process.env.LLM_API_URL;
+
+// Validate on startup
+if (!LLM_API_URL) {
+    console.error('❌ CRITICAL: LLM_API_URL environment variable not set!');
+    console.error('   Please set it to your Python service URL');
+    console.error('   Example: https://viha-bot-python.onrender.com');
+    process.exit(1);
+}
+
+console.log(`🔗 LLM API configured: ${LLM_API_URL}`);
 
 /**
  * Call LangChain Complete Bot API

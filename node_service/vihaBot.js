@@ -506,10 +506,23 @@ async function processMessageWithLLM(jid, messageText, userId) {
 async function lockConversation(customerNumber) {
     try {
         const axios = require('axios');
-        const LLM_API_URL = process.env.LLM_API_URL || 'http://localhost:8000';
+        const LLM_API_URL = process.env.LLM_API_URL;
         
+        // ✅ PRODUCTION: Validate LLM_API_URL exists
+        if (!LLM_API_URL) {
+            console.error('❌ LLM_API_URL not configured - cannot lock conversation');
+            console.error('   Please set LLM_API_URL environment variable');
+            return false;
+        }
+        
+        // ✅ PRODUCTION: Add timeout and headers
         await axios.post(`${LLM_API_URL}/lock_conversation`, {
             user_id: customerNumber
+        }, {
+            timeout: 10000,  // 10 second timeout
+            headers: {
+                'Content-Type': 'application/json'
+            }
         });
         
         console.log(`✅ Conversation permanently locked for ${customerNumber}`);
@@ -517,10 +530,20 @@ async function lockConversation(customerNumber) {
         
     } catch (error) {
         console.error('❌ Error locking conversation:', error.message);
+        
+        // ✅ PRODUCTION: More detailed error logging
+        if (error.code === 'ECONNABORTED') {
+            console.error('   Reason: Request timeout (Python service too slow)');
+        } else if (error.code === 'ECONNREFUSED') {
+            console.error('   Reason: Cannot connect to Python service');
+            console.error(`   Check if ${process.env.LLM_API_URL} is accessible`);
+        } else if (error.response) {
+            console.error(`   HTTP Status: ${error.response.status}`);
+        }
+        
         return false;
     }
 }
-
 /**
  * Initialize WhatsApp client
  */

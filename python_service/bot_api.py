@@ -20,6 +20,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ✅ PRODUCTION: Validate environment on startup
+@app.on_event("startup")
+async def startup_event():
+    """Validate required environment variables"""
+    print("\n" + "="*70)
+    print("🔍 VALIDATING PRODUCTION ENVIRONMENT")
+    print("="*70)
+    
+    db_url = os.getenv("SUPABASE_DB_URL")
+    groq_key = os.getenv("GROQ_API_KEY")
+    
+    if not db_url:
+        print("❌ CRITICAL: SUPABASE_DB_URL not set!")
+        raise ValueError("SUPABASE_DB_URL environment variable is required")
+    
+    if not groq_key:
+        print("❌ CRITICAL: GROQ_API_KEY not set!")
+        raise ValueError("GROQ_API_KEY environment variable is required")
+    
+    print(f"✅ Database URL: {db_url[:50]}...{db_url[-20:]}")
+    print(f"✅ Groq API Key: {groq_key[:20]}...")
+    print("="*70 + "\n")
+
 # Initialize bot
 bot = ProductionVihaBot()
 
