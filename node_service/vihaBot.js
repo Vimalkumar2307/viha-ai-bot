@@ -14,6 +14,7 @@ const pino = require('pino');
 // Import our modules
 const { chatWithLLM, checkLLMHealth, LLM_API_URL } = require('./llmClient');
 const { startWebServer, updateBotState } = require('./webInterface');
+const { useSupabaseAuthState } = require('./authStateSupabase');
 
 // Import Baileys
 const {
@@ -214,6 +215,8 @@ async function alertWife(customerNumber, llmResponse, reason = 'NEEDS_HELP') {
  */
 const alertedCustomers = new Set();
 
+// ✅ NEW: Track locked conversations in this session (prevent spam)
+const lockedConversationsCache = new Set();
 /**
  * Handle incoming WhatsApp messages - FIXED alert spam
  */
@@ -248,10 +251,19 @@ async function handleIncomingMessage(message) {
                 return;
             }
             
+            // ✅ FIX: Check if already locked in this session
+            if (lockedConversationsCache.has(customerNumber)) {
+                console.log(`🔕 Already locked ${customerNumber} in this session, skipping`);
+                return;
+            }
+            
             console.log(`\n🔒 WIFE INTERRUPTED - Locking conversation permanently`);
             console.log(`   Customer: ${customerNumber}`);
             
             await lockConversation(customerNumber);
+            
+            // ✅ Add to cache to prevent duplicate locks
+            lockedConversationsCache.add(customerNumber);
             
             // Remove from alerted set (wife is now handling)
             alertedCustomers.delete(customerNumber);
@@ -417,9 +429,9 @@ async function processMessageWithLLM(jid, messageText, userId) {
             if (llmResponse.products && llmResponse.products.length > 0) {
                 const requirementsSummary = llmResponse.requirements_summary || "";
                 console.log(`📸 Sending requirements summary + ${llmResponse.products.length} product images`);
-                console.log('🔍 DEBUG: Requirements summary:', requirementsSummary);
-                console.log('🔍 DEBUG: Customer requirements:', llmResponse.customer_requirements);
-                console.log('🔍 DEBUG: Handoff reason:', llmResponse.handoff_reason);
+                // console.log('🔍 DEBUG: Requirements summary:', requirementsSummary);
+                // console.log('🔍 DEBUG: Customer requirements:', llmResponse.customer_requirements);
+                // console.log('🔍 DEBUG: Handoff reason:', llmResponse.handoff_reason);
                 
                 // ✅ NEW: Pass requirements summary to sendProductImages
                 await sendProductImages(jid, llmResponse.products, requirementsSummary);
@@ -553,13 +565,35 @@ async function initializeWhatsAppClient() {
         
         const logger = pino({ level: 'silent' });
         
-        // Setup auth folder
-        const authFolder = path.join(__dirname, 'auth_info');
-        if (!fs.existsSync(authFolder)) {
-            fs.mkdirSync(authFolder, { recursive: true });
+        // ============================================================
+        // CHOOSE AUTH STORAGE: Supabase (Production) vs Files (Dev)
+        // ============================================================
+        
+        const SUPABASE_DB_URL = process.env.SUPABASE_DB_URL;
+        const IS_PRODUCTION = !!process.env.RENDER_SERVICE_NAME; // ✅ Convert to boolean
+
+        if (SUPABASE_DB_URL && IS_PRODUCTION) {
+            // Production: Use Supabase
+            console.log('🗄️  Using Supabase for auth storage (production mode)');
+            const authState = await useSupabaseAuthState(SUPABASE_DB_URL);
+            state = authState.state;
+            saveCreds = authState.saveCreds;
+            
+        } else {
+            // Development: Use files
+            console.log('📁 Using file-based auth storage (development mode)');
+            const { useMultiFileAuthState } = require('@whiskeysockets/baileys');
+            const authFolder = path.join(__dirname, 'auth_info');
+            
+            if (!fs.existsSync(authFolder)) {
+                fs.mkdirSync(authFolder, { recursive: true });
+            }
+            
+            const fileAuth = await useMultiFileAuthState(authFolder);
+            state = fileAuth.state;
+            saveCreds = fileAuth.saveCreds;
         }
         
-        const { state, saveCreds } = await useMultiFileAuthState(authFolder);
         console.log('✅ Auth state loaded');
         
         const { version, isLatest } = await fetchLatestBaileysVersion();
@@ -603,21 +637,40 @@ async function initializeWhatsAppClient() {
                 
                 updateBotState({ isReady: false, qrCodeData: '' });
                 
-                // Handle logout
-                if (lastDisconnect?.error instanceof Boom && 
-                    lastDisconnect.error.output.statusCode === DisconnectReason.loggedOut) {
+                // Handle logout and reconnection
+                const statusCode = lastDisconnect?.error instanceof Boom 
+                    ? lastDisconnect.error.output.statusCode 
+                    : null;
+                
+                // ✅ ONLY clear auth on actual logout (not connection failures)
+                if (statusCode === DisconnectReason.loggedOut) {
+                    console.log('🚪 User logged out - clearing auth...');
                     
-                    console.log('🚪 User logged out, clearing auth...');
-                    
-                    try {
-                        if (fs.existsSync(authFolder)) {
-                            const files = fs.readdirSync(authFolder);
-                            files.forEach(file => fs.unlinkSync(path.join(authFolder, file)));
-                            console.log('🧹 Auth cleared');
+                    // Clear auth from Supabase
+                    if (process.env.SUPABASE_DB_URL && process.env.RENDER_SERVICE_NAME) {
+                        try {
+                            const { Client } = require('pg');
+                            const client = new Client({ connectionString: process.env.SUPABASE_DB_URL });
+                            await client.connect();
+                            await client.query('DELETE FROM whatsapp_auth WHERE id = $1', ['main_session']);
+                            await client.end();
+                            console.log('🧹 Auth cleared from Supabase');
+                        } catch (error) {
+                            console.error('❌ Error clearing Supabase auth:', error);
                         }
-                    } catch (error) {
-                        console.error('❌ Error clearing auth:', error);
-                    }
+                    } else {
+                        // Clear local files
+                        try {
+                            const authFolder = path.join(__dirname, 'auth_info');
+                            if (fs.existsSync(authFolder)) {
+                                const files = fs.readdirSync(authFolder);
+                                files.forEach(file => fs.unlinkSync(path.join(authFolder, file)));
+                                console.log('🧹 Auth files cleared');
+                            }
+                        } catch (error) {
+                            console.error('❌ Error clearing auth:', error);
+                        }
+                    }       
                     
                     setTimeout(() => initializeWhatsAppClient(), 2000);
                     
@@ -687,7 +740,17 @@ async function checkLLMOnStartup() {
 /**
  * Main startup function
  */
+let isInitializing = false;
+let isInitialized = false;
+
 async function main() {
+    if (isInitializing || isInitialized) {
+        console.log('⚠️  Initialization already in progress or complete');
+        return;
+    }
+    
+    isInitializing = true;
+    
     try {
         // Start web interface
         startWebServer();
@@ -698,8 +761,12 @@ async function main() {
         // Initialize WhatsApp
         await initializeWhatsAppClient();
         
+        isInitialized = true;
+        isInitializing = false;
+        
     } catch (error) {
         console.error('❌ Fatal error:', error);
+        isInitializing = false;
         process.exit(1);
     }
 }
@@ -713,5 +780,7 @@ process.on('SIGINT', () => {
     process.exit(0);
 });
 
-// Start the bot
-main();
+// ✅ Only start if run directly (not imported)
+if (require.main === module) {
+    main();
+}

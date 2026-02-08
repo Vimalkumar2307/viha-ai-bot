@@ -255,12 +255,20 @@ app.get('/api/stats', (req, res) => {
 /**
  * Start the Express server
  */
+let serverInstance = null;
+
 function startWebServer() {
-    app.listen(PORT, () => {
+    if (serverInstance) {
+        return serverInstance;
+    }
+    
+    serverInstance = app.listen(PORT, () => {
         console.log(`🌐 Web interface: http://localhost:${PORT}`);
         console.log(`📊 Health check: http://localhost:${PORT}/health`);
         console.log(`📈 Stats API: http://localhost:${PORT}/api/stats`);
     });
+    
+    return serverInstance;
 }
 
 module.exports = {

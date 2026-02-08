@@ -586,13 +586,16 @@ Thank you!"""
     }
 
 def intent_classifier_node(state: BotState) -> BotState:
-    """Node 2: Classify customer intent - ENHANCED to handle images and quick queries"""
+    """Node 2: Classify customer intent"""
     print("  🟨 NODE: INTENT CLASSIFICATION")
     
     # ===== PRIORITY CHECK: Already handed off? =====
     if state.get("needs_human_handoff"):
         print("    🚫 Already handed off to human - Bot staying silent")
-        return {}
+        # ✅ FIX: Return at least one state field to satisfy LangGraph
+        return {
+            "current_stage": "handoff"  # Must return something!
+        }
     
     user_messages = [m for m in state["messages"] if isinstance(m, HumanMessage)]
     if not user_messages:
