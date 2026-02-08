@@ -122,22 +122,26 @@ def extract_customer_requirements(message: str) -> dict:
     
     # Date patterns - FIXED to handle both "Feb23" and "Feb 23"
     date_patterns = [
-        # Month name formats (with OR without space)
-        r'(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s*(\d{1,2})',  # feb23, feb 23, february14
-        r'(\d{1,2})\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)',     # 23feb, 23 feb, 14february
+        # Month name formats - NO newlines allowed between month and number
+        r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s{0,2}(\d{1,2})\b',  # feb23, feb 23 (max 2 spaces)
+        r'\b(\d{1,2})\s{0,2}(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\b',  # 23 feb (max 2 spaces)
         
         # Numeric date formats (DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY)
-        r'(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})',  # 14/02/2026, 14-2-26, 14.02.2026
-        r'(\d{1,2})[/\-.](\d{1,2})',                  # 14/02, 14-2, 14.2
+        r'\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})\b',  # 14/02/2026
+        r'\b(\d{1,2})[/\-.](\d{1,2})\b',                  # 14/02
     ]
     
     for pattern in date_patterns:
-        matches = re.finditer(pattern, msg_lower)
+        matches = re.finditer(pattern, msg_lower, re.IGNORECASE)  # ✅ Added re.IGNORECASE flag
         for match in matches:
             # ✅ PRESERVE THE ACTUAL DATE TEXT
-            # Find the full matched text (e.g., "Feb23", "23 Feb")
-            matched_date_text = match.group(0)
-            extracted["timeline"] = matched_date_text  # Store actual date like "Feb23"
+            matched_date_text = match.group(0).strip()  # ✅ Added .strip()
+            
+            # ✅ VALIDATION: Don't accept if matched text spans multiple lines
+            if '\n' in matched_date_text:
+                continue  # Skip this match
+            
+            extracted["timeline"] = matched_date_text
             
             # Extract all numeric groups (skip month names)
             for group_num in range(1, len(match.groups()) + 1):
