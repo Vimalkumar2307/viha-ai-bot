@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from complete_bot import ProductionVihaBot
 from datetime import datetime
 import os
+import psycopg 
 
 app = FastAPI()
 
@@ -278,19 +279,60 @@ async def chat(request: ChatRequest):
 
 @app.get("/health")
 async def health():
+    """Quick health check (no DB query) - faster for simple pings"""
     return {
         "status": "healthy",
         "version": "3.0",
         "locked_conversations": len(locked_conversations),
-        "available_endpoints": [
-            "POST /chat - Send message to bot",
-            "POST /lock_conversation - Lock conversation (wife takes over)",
-            "POST /unlock_conversation - Unlock conversation",
-            "POST /reset_conversation - Reset conversation (clear all state)",
-            "GET /locked_conversations - List all locked conversations",
-            "GET /health - Check API status"
-        ]
+        "timestamp": datetime.now().isoformat()
     }
+
+@app.get("/health-check")
+async def health_check():
+    """
+    Enhanced health check with database connection test
+    Used by UptimeRobot to keep service awake
+    """
+    try:
+        db_url = os.getenv("SUPABASE_DB_URL")
+        
+        if not db_url:
+            return {
+                "status": "unhealthy",
+                "error": "SUPABASE_DB_URL not configured",
+                "timestamp": datetime.now().isoformat()
+            }
+        
+        # Test database connection
+        conn = psycopg.connect(db_url)
+        cursor = conn.cursor()
+        
+        # Count checkpoints (shows bot is storing conversations)
+        cursor.execute("SELECT COUNT(*) FROM checkpoints")
+        checkpoint_count = cursor.fetchone()[0]
+        
+        cursor.close()
+        conn.close()
+        
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "database_connected": True,
+            "checkpoint_count": checkpoint_count,
+            "locked_conversations": len(locked_conversations),
+            "groq_api_configured": bool(os.getenv("GROQ_API_KEY"))
+        }
+        
+    except Exception as e:
+        print(f"❌ Health check failed: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
 
 if __name__ == "__main__":
     import uvicorn

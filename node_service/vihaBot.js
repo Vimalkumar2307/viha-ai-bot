@@ -565,22 +565,20 @@ async function initializeWhatsAppClient() {
         
         const logger = pino({ level: 'silent' });
         
-        // ============================================================
-        // CHOOSE AUTH STORAGE: Supabase (Production) vs Files (Dev)
-        // ============================================================
-        
         const SUPABASE_DB_URL = process.env.SUPABASE_DB_URL;
-        const IS_PRODUCTION = !!process.env.RENDER_SERVICE_NAME; // ✅ Convert to boolean
+        const IS_PRODUCTION = !!process.env.RENDER_SERVICE_NAME;
+
+        let state, saveCreds, savePhoneNumber, clearSessionLock; // ✅ Added new functions
 
         if (SUPABASE_DB_URL && IS_PRODUCTION) {
-            // Production: Use Supabase
             console.log('🗄️  Using Supabase for auth storage (production mode)');
             const authState = await useSupabaseAuthState(SUPABASE_DB_URL);
             state = authState.state;
             saveCreds = authState.saveCreds;
+            savePhoneNumber = authState.savePhoneNumber; // ✅ NEW
+            clearSessionLock = authState.clearSessionLock; // ✅ NEW
             
         } else {
-            // Development: Use files
             console.log('📁 Using file-based auth storage (development mode)');
             const { useMultiFileAuthState } = require('@whiskeysockets/baileys');
             const authFolder = path.join(__dirname, 'auth_info');
@@ -592,6 +590,8 @@ async function initializeWhatsAppClient() {
             const fileAuth = await useMultiFileAuthState(authFolder);
             state = fileAuth.state;
             saveCreds = fileAuth.saveCreds;
+            savePhoneNumber = null; // Not used in dev mode
+            clearSessionLock = null;
         }
         
         console.log('✅ Auth state loaded');
@@ -599,7 +599,6 @@ async function initializeWhatsAppClient() {
         const { version, isLatest } = await fetchLatestBaileysVersion();
         console.log(`📡 WhatsApp Web v${version.join('.')}, Latest: ${isLatest}`);
         
-        // Create WhatsApp socket
         sock = makeWASocket({
             version,
             logger,
@@ -613,11 +612,10 @@ async function initializeWhatsAppClient() {
             getMessage: async () => ({ conversation: 'Hi' })
         });
         
-        // Handle connection updates
+        // ✅ Handle connection updates
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
-            // Handle QR code
             if (qr) {
                 console.log('📱 QR Code generated');
                 try {
@@ -628,7 +626,6 @@ async function initializeWhatsAppClient() {
                 }
             }
             
-            // Handle connection close
             if (connection === 'close') {
                 const shouldReconnect = lastDisconnect?.error instanceof Boom ? 
                     lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut : true;
@@ -637,14 +634,18 @@ async function initializeWhatsAppClient() {
                 
                 updateBotState({ isReady: false, qrCodeData: '' });
                 
-                // Handle logout and reconnection
                 const statusCode = lastDisconnect?.error instanceof Boom 
                     ? lastDisconnect.error.output.statusCode 
                     : null;
                 
-                // ✅ ONLY clear auth on actual logout (not connection failures)
+                // ✅ ONLY clear auth on MANUAL logout
                 if (statusCode === DisconnectReason.loggedOut) {
-                    console.log('🚪 User logged out - clearing auth...');
+                    console.log('🚪 User logged out manually from phone');
+                    
+                    // ✅ Clear session lock
+                    if (clearSessionLock) {
+                        await clearSessionLock();
+                    }
                     
                     // Clear auth from Supabase
                     if (process.env.SUPABASE_DB_URL && process.env.RENDER_SERVICE_NAME) {
@@ -655,17 +656,18 @@ async function initializeWhatsAppClient() {
                             await client.query('DELETE FROM whatsapp_auth WHERE id = $1', ['main_session']);
                             await client.end();
                             console.log('🧹 Auth cleared from Supabase');
+                            console.log('✅ Bot is now ready for new phone number to connect');
                         } catch (error) {
                             console.error('❌ Error clearing Supabase auth:', error);
                         }
                     } else {
-                        // Clear local files
                         try {
                             const authFolder = path.join(__dirname, 'auth_info');
                             if (fs.existsSync(authFolder)) {
                                 const files = fs.readdirSync(authFolder);
                                 files.forEach(file => fs.unlinkSync(path.join(authFolder, file)));
                                 console.log('🧹 Auth files cleared');
+                                console.log('✅ Bot is now ready for new phone number to connect');
                             }
                         } catch (error) {
                             console.error('❌ Error clearing auth:', error);
@@ -688,25 +690,42 @@ async function initializeWhatsAppClient() {
                 }
             }
             
-            // Handle successful connection
+            // ✅ Handle successful connection
             if (connection === 'open') {
                 console.log('✅ WhatsApp connected successfully!');
+                
+                if (savePhoneNumber && state.creds.me?.id) {
+                    const phoneNumber = state.creds.me.id.split(':')[0];
+                    await savePhoneNumber(phoneNumber);
+                    
+                    const maskedNumber = phoneNumber.replace(/(\d{2})\d{6}(\d{4})/, '$1******$2');
+                    console.log(`🔒 Session locked to: +${maskedNumber}`);
+                    
+                    updateBotState({ 
+                        isReady: true, 
+                        qrCodeData: '', 
+                        reconnectAttempts: 0,
+                        lastConnected: new Date().toLocaleString(),
+                        connectedPhone: maskedNumber  // ← KEY LINE
+                    });
+                } else {
+                    updateBotState({ 
+                        isReady: true, 
+                        qrCodeData: '', 
+                        reconnectAttempts: 0,
+                        lastConnected: new Date().toLocaleString(),
+                        connectedPhone: 'Hidden'
+                    });
+                }
+                
                 console.log('👂 Bot is now listening for messages...\n');
                 
-                reconnectAttempts = 0;
-                updateBotState({ 
-                    isReady: true, 
-                    qrCodeData: '', 
-                    reconnectAttempts: 0,
-                    lastConnected: new Date().toLocaleString()
-                });
+                reconnectAttempts = 0;            
             }
         });
         
-        // Save credentials on update
         sock.ev.on('creds.update', saveCreds);
         
-        // Handle incoming messages
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             if (type === 'notify' && messages[0]) {
                 await handleIncomingMessage(messages[0]);
@@ -720,7 +739,6 @@ async function initializeWhatsAppClient() {
         throw error;
     }
 }
-
 /**
  * Check LLM health on startup
  */

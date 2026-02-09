@@ -28,6 +28,7 @@ function updateBotState(newState) {
  */
 app.get('/', (req, res) => {
     if (botState.isReady) {
+        const connectedPhone = botState.connectedPhone || 'Hidden';
         res.send(`
             <html>
                 <head>
@@ -71,6 +72,16 @@ app.get('/', (req, res) => {
                             font-size: 16px;
                         }
                         .btn:hover { background: #5568d3; }
+                        .phone-badge { 
+                            background: #28a745; 
+                            color: white; 
+                            padding: 10px 20px; 
+                            border-radius: 25px; 
+                            display: inline-block;
+                            margin: 15px 0;
+                            font-family: monospace;
+                            font-size: 18px;
+                        }
                         .info-box {
                             background: #f8f9fa;
                             padding: 20px;
@@ -83,11 +94,16 @@ app.get('/', (req, res) => {
                     <div class="container">
                         <h1>✅ Bot is Online!</h1>
                         <div class="badge">🤖 AI-Powered</div>
+                        <div class="phone-badge">📱 +${connectedPhone}</div>
                         <p class="status-online">VihaReturnGifts AI Bot is active and ready</p>
                         <div class="info-box">
                             <h3>📊 Status</h3>
                             <p>Mode: LLM-Powered</p>
                             <p>Last connected: ${botState.lastConnected || new Date().toLocaleString()}</p>
+                            <p><strong>🔒 Session Locked</strong></p>
+                            <p style="font-size: 12px; color: #666;">
+                                To connect a different number, manually log out from WhatsApp on phone
+                            </p>
                         </div>
                         <button class="btn" onclick="location.reload()">🔄 Refresh Status</button>
                     </div>
@@ -250,6 +266,72 @@ app.get('/api/stats', (req, res) => {
         lastConnected: botState.lastConnected,
         uptime: process.uptime()
     });
+});
+
+
+/**
+ * Health check endpoint - keeps service awake and monitors status
+ * Used by UptimeRobot for free tier monitoring
+ */
+app.get('/health-check', async (req, res) => {
+    try {
+        const status = {
+            timestamp: new Date().toISOString(),
+            service: 'node-whatsapp',
+            whatsapp_connected: botState.isReady,
+            active_conversations: 0, // Will be populated if vihaBot exports this
+            uptime_seconds: Math.floor(process.uptime()),
+            memory_usage_mb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024)
+        };
+        
+        // Check WhatsApp connection health
+        if (!botState.isReady) {
+            console.log('⚠️  WhatsApp disconnected during health check');
+            status.whatsapp_status = 'disconnected';
+        } else {
+            status.whatsapp_status = 'connected';
+        }
+        
+        // Ping Python service to check if it's alive
+        try {
+            const axios = require('axios');
+            const LLM_API_URL = process.env.LLM_API_URL;
+            
+            if (LLM_API_URL) {
+                const pythonResponse = await axios.get(`${LLM_API_URL}/health`, { 
+                    timeout: 5000 
+                });
+                
+                status.python_service = {
+                    status: 'healthy',
+                    response: pythonResponse.data
+                };
+            } else {
+                status.python_service = {
+                    status: 'not_configured',
+                    error: 'LLM_API_URL not set'
+                };
+            }
+        } catch (error) {
+            status.python_service = {
+                status: 'unreachable',
+                error: error.message
+            };
+        }
+        
+        // Log health check (every 10 min won't spam logs too much)
+        console.log(`🏥 Health check: WhatsApp=${status.whatsapp_status}, Python=${status.python_service.status}`);
+        
+        res.json(status);
+        
+    } catch (error) {
+        console.error('❌ Health check error:', error);
+        res.status(500).json({ 
+            status: 'error',
+            error: error.message,
+            timestamp: new Date().toISOString()
+        });
+    }
 });
 
 /**
