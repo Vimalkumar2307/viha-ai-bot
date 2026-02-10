@@ -288,6 +288,7 @@ async def health():
     }
 
 @app.get("/health-check")
+@app.head("/health-check") 
 async def health_check():
     """
     Enhanced health check with database connection test
