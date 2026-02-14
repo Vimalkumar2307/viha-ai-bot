@@ -165,13 +165,14 @@ def extract_customer_requirements(message: str) -> dict:
     
     # ===== STEP 3: Extract BUDGET (NEW LOGIC with ranges) =====
     budget_extracted = False
+    budget_used_keyword = False  # ✅ DECLARE AT THE TOP!
 
     # Pattern 1: "below X" or "under X" → min=0, max=X+20
-    below_match = re.search(r'(?:below|under|upto|up\s*to)\s*(\d+)(?:\s*(?:rs|rupees|₹))?', msg_lower)
+    below_match = re.search(r'(?:below|under|upto|up\s*to)\s*(\d+)', msg_lower)
     if below_match:
         max_budget = int(below_match.group(1))
         extracted["budget_min"] = 0
-        extracted["budget_max"] = max_budget + 20  # ✅ Add buffer
+        extracted["budget_max"] = max_budget + 20
         extracted["budget_display"] = f"below ₹{max_budget}"
         budget_extracted = True
         print(f"    💰 Extracted budget (below): 0 to {max_budget} (showing up to {max_budget + 20})")
@@ -182,7 +183,7 @@ def extract_customer_requirements(message: str) -> dict:
         if above_match:
             min_budget = int(above_match.group(1))
             extracted["budget_min"] = min_budget
-            extracted["budget_max"] = 10000  # Practical upper limit
+            extracted["budget_max"] = 10000
             extracted["budget_display"] = f"above ₹{min_budget}"
             budget_extracted = True
             print(f"    💰 Extracted budget (above): {min_budget} to 10000")
@@ -200,12 +201,11 @@ def extract_customer_requirements(message: str) -> dict:
                 min_budget = int(range_match.group(1))
                 max_budget = int(range_match.group(2))
                 
-                # Ensure min < max
                 if min_budget > max_budget:
                     min_budget, max_budget = max_budget, min_budget
                 
                 extracted["budget_min"] = min_budget
-                extracted["budget_max"] = max_budget + 20  # ✅ Add buffer
+                extracted["budget_max"] = max_budget + 20
                 extracted["budget_display"] = f"₹{min_budget} to ₹{max_budget}"
                 budget_extracted = True
                 print(f"    💰 Extracted budget (range): {min_budget} to {max_budget} (showing up to {max_budget + 20})")
@@ -220,16 +220,16 @@ def extract_customer_requirements(message: str) -> dict:
             r'(\d+)\s*rs\b',
         ]
         
-        budget_used_keyword = False
+        # ✅ budget_used_keyword already declared above
         for pattern in budget_patterns:
             match = re.search(pattern, msg_lower)
             if match:
                 budget = int(match.group(1))
                 extracted["budget_min"] = 0
-                extracted["budget_max"] = budget + 20  # ✅ Add buffer
+                extracted["budget_max"] = budget + 20
                 extracted["budget_display"] = f"₹{budget}"
                 budget_extracted = True
-                budget_used_keyword = True
+                budget_used_keyword = True  # ✅ Now this works!
                 print(f"    💰 Extracted budget (single): {budget} (showing up to {budget + 20})")
                 break
     
