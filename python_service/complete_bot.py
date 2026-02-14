@@ -63,7 +63,9 @@ class CustomerIntent(BaseModel):
 class ExtractedRequirements(BaseModel):
     """Structured extraction of customer requirements"""
     quantity: int | None = Field(None, description="Number of pieces needed")
-    budget_per_piece: int | None = Field(None, description="Budget in rupees")
+    budget_min: int | None = Field(None, description="Minimum budget in rupees")
+    budget_max: int | None = Field(None, description="Maximum budget in rupees")
+    budget_display: str | None = Field(None, description="Budget as customer said it")
     timeline: str | None = Field(None, description="When needed")
     location: str | None = Field(None, description="Delivery city")
     preferences: list[str] = Field(default_factory=list)
@@ -84,19 +86,16 @@ class ValidationResult(BaseModel):
 @tool
 def extract_customer_requirements(message: str) -> dict:
     """
-    Extract customer requirements: quantity, budget, timeline, location.
-    Uses position-based extraction with confirmation for ambiguous cases.
-    
-    Args:
-        message: Customer's message text
-        
-    Returns:
-        Dictionary with extracted requirements
+    Extract customer requirements: quantity, budget (including ranges), timeline, location.
+    Supports: single budget, ranges, below/above patterns.
+    Auto-adds +20 Rs buffer to max budget for customer flexibility.
     """
     msg_lower = message.lower()
     extracted = {
         "quantity": None,
-        "budget_per_piece": None,
+        "budget_min": None,      # ✅ NEW: Min budget
+        "budget_max": None,      # ✅ NEW: Max budget  
+        "budget_display": None,  # ✅ NEW: What to show customer
         "timeline": None,
         "location": None,
         "preferences": [],
@@ -164,26 +163,75 @@ def extract_customer_requirements(message: str) -> dict:
             print(f"    📦 Extracted quantity (keyword): {match.group(1)}")
             break
     
-    # ===== STEP 3: Extract BUDGET (with keywords) =====
-    budget_patterns = [
-    r'(?:budget|price)\s*:?\s*(\d+)',
-    r'(\d+)\s*(?:rupees|rs|₹|per\s*piece)',
-    r'₹\s*(\d+)',
-    r'(\d+)\s*rs\b',
-    r'under\s+(\d+)',
-    r'below\s+(\d+)',
-    r'within\s+(\d+)',
-    r'upto\s+(\d+)',
-    ]
-    
-    budget_used_keyword = False
-    for pattern in budget_patterns:
-        match = re.search(pattern, msg_lower)
-        if match:
-            extracted["budget_per_piece"] = int(match.group(1))
-            budget_used_keyword = True
-            print(f"    💰 Extracted budget (keyword): {match.group(1)}")
-            break
+    # ===== STEP 3: Extract BUDGET (NEW LOGIC with ranges) =====
+    budget_extracted = False
+
+    # Pattern 1: "below X" or "under X" → min=0, max=X+20
+    below_match = re.search(r'(?:below|under|upto|up\s*to)\s*(\d+)(?:\s*(?:rs|rupees|₹))?', msg_lower)
+    if below_match:
+        max_budget = int(below_match.group(1))
+        extracted["budget_min"] = 0
+        extracted["budget_max"] = max_budget + 20  # ✅ Add buffer
+        extracted["budget_display"] = f"below ₹{max_budget}"
+        budget_extracted = True
+        print(f"    💰 Extracted budget (below): 0 to {max_budget} (showing up to {max_budget + 20})")
+
+    # Pattern 2: "above X" → min=X, max=10000
+    if not budget_extracted:
+        above_match = re.search(r'(?:above|over|more\s*than)\s*(\d+)', msg_lower)
+        if above_match:
+            min_budget = int(above_match.group(1))
+            extracted["budget_min"] = min_budget
+            extracted["budget_max"] = 10000  # Practical upper limit
+            extracted["budget_display"] = f"above ₹{min_budget}"
+            budget_extracted = True
+            print(f"    💰 Extracted budget (above): {min_budget} to 10000")
+
+    # Pattern 3: "X to Y" or "X-Y" range
+    if not budget_extracted:
+        range_patterns = [
+            r'(\d+)\s*(?:to|-)\s*(\d+)\s*(?:rs|rupees)?',
+            r'(\d+)\s*(?:to|-)\s*(\d+)',
+        ]
+        
+        for pattern in range_patterns:
+            range_match = re.search(pattern, msg_lower)
+            if range_match:
+                min_budget = int(range_match.group(1))
+                max_budget = int(range_match.group(2))
+                
+                # Ensure min < max
+                if min_budget > max_budget:
+                    min_budget, max_budget = max_budget, min_budget
+                
+                extracted["budget_min"] = min_budget
+                extracted["budget_max"] = max_budget + 20  # ✅ Add buffer
+                extracted["budget_display"] = f"₹{min_budget} to ₹{max_budget}"
+                budget_extracted = True
+                print(f"    💰 Extracted budget (range): {min_budget} to {max_budget} (showing up to {max_budget + 20})")
+                break
+
+    # Pattern 4: Single budget with keywords
+    if not budget_extracted:
+        budget_patterns = [
+            r'(?:budget|price)\s*:?\s*(\d+)',
+            r'(\d+)\s*(?:rupees|rs|₹|per\s*piece)',
+            r'₹\s*(\d+)',
+            r'(\d+)\s*rs\b',
+        ]
+        
+        budget_used_keyword = False
+        for pattern in budget_patterns:
+            match = re.search(pattern, msg_lower)
+            if match:
+                budget = int(match.group(1))
+                extracted["budget_min"] = 0
+                extracted["budget_max"] = budget + 20  # ✅ Add buffer
+                extracted["budget_display"] = f"₹{budget}"
+                budget_extracted = True
+                budget_used_keyword = True
+                print(f"    💰 Extracted budget (single): {budget} (showing up to {budget + 20})")
+                break
     
     # ===== STEP 4: POSITION-BASED extraction =====
     position_based_used = False
@@ -191,8 +239,8 @@ def extract_customer_requirements(message: str) -> dict:
     print(f"    🔍 DEBUG: all_numbers = {all_numbers}")
     print(f"    🔍 DEBUG: date_numbers = {date_numbers}")
 
-    if extracted["quantity"] is None or extracted["budget_per_piece"] is None:
-        print(f"    🔍 DEBUG: Position-based condition TRUE (qty={extracted['quantity']}, budget={extracted['budget_per_piece']})")
+    if extracted["quantity"] is None or extracted["budget_max"] is None:
+        print(f"    🔍 DEBUG: Position-based condition TRUE (qty={extracted['quantity']}, budget_max={extracted['budget_max']})")
         # Get non-date numbers
         non_date_numbers = []
         for num in all_numbers:
@@ -208,18 +256,23 @@ def extract_customer_requirements(message: str) -> dict:
                 position_based_used = True
                 print(f"    📦 Auto-detected quantity (position): {non_date_numbers[0]}")
             
-            if extracted["budget_per_piece"] is None:
-                extracted["budget_per_piece"] = non_date_numbers[1]
+            if extracted["budget_max"] is None:
+                budget = non_date_numbers[1]
+                extracted["budget_min"] = 0
+                extracted["budget_max"] = budget + 20  # ✅ Add buffer
+                extracted["budget_display"] = f"₹{budget}"
                 position_based_used = True
-                print(f"    💰 Auto-detected budget (position): {non_date_numbers[1]}")
+                print(f"    💰 Auto-detected budget (position): {budget} (showing up to {budget + 20})")
         
         elif len(non_date_numbers) == 1:
             num = non_date_numbers[0]
             if extracted["quantity"] is None:
                 extracted["quantity"] = num
-            elif extracted["budget_per_piece"] is None:
-                extracted["budget_per_piece"] = num
-    
+            elif extracted["budget_max"] is None:
+                extracted["budget_min"] = 0
+                extracted["budget_max"] = num + 20  # ✅ Add buffer
+                extracted["budget_display"] = f"₹{num}"
+            
     # ===== STEP 5: Extract LOCATION =====
     known_cities = [
         "chennai", "bangalore", "bengaluru", "coimbatore", "madurai",
@@ -268,13 +321,13 @@ def extract_customer_requirements(message: str) -> dict:
     # ===== STEP 7: CONFIRMATION LOGIC =====
     # ✅ NEW: Only ask confirmation if BOTH values used position-based extraction
     if (extracted["quantity"] is not None and 
-        extracted["budget_per_piece"] is not None):
+        extracted["budget_max"] is not None):
         
         # Check if NEITHER used keywords (both position-based)
         if not qty_used_keyword and not budget_used_keyword:
             extracted["needs_confirmation"] = True
             print(f"    ⚠️  No keywords used - will ask confirmation")
-            print(f"    📋 qty={extracted['quantity']}, budget={extracted['budget_per_piece']}")
+            print(f"    📋 qty={extracted['quantity']}, budget_max={extracted['budget_max']}")
     
     return extracted
 
@@ -349,13 +402,15 @@ def calculate_timeline_urgency(timeline: str) -> dict:
 
 @tool
 def search_matching_products(
-    budget_max: int,
-    quantity: int,
+    budget_min: int = 0,
+    budget_max: int = 10000,
+    quantity: int = 1,
     preferences: list[str] | None = None
 ) -> list:
     """
     Search products from Supabase database.
-    Returns ALL products matching criteria with CORRECT quantity-based pricing.
+    Returns products matching budget RANGE (min to max).
+    Max budget already includes +20 Rs buffer from extraction.
     """
     preferences = preferences or []
     matching_products = []
@@ -427,8 +482,8 @@ def search_matching_products(
                     if price <= budget_max:
                         applicable_price = price
             
-            # Skip if price doesn't fit budget
-            if applicable_price is None or applicable_price > budget_max:
+            # ✅ Skip if price is outside budget range
+            if applicable_price is None or applicable_price < budget_min or applicable_price > budget_max:
                 continue
             
             # Calculate relevance score
@@ -814,9 +869,11 @@ def requirement_extraction_node(state: BotState) -> BotState:
                     "current_stage": "validation"
                 }
             
-            elif current_req.budget_per_piece is None:
+            elif current_req.budget_max is None:
                 print(f"    💰 Sequential fill: budget = {number}")
-                current_req.budget_per_piece = number
+                current_req.budget_min = 0
+                current_req.budget_max = number + 20  # ✅ Add buffer
+                current_req.budget_display = f"₹{number}"
                 return {
                     "requirements": current_req,
                     "current_stage": "validation"
@@ -847,13 +904,13 @@ def requirement_extraction_node(state: BotState) -> BotState:
                 if current_value is None:
                     # Field is empty, always fill it
                     setattr(current_req, key, value)
-                elif key in ["quantity", "budget_per_piece"]:
+                elif key in ["quantity", "budget_min", "budget_max"]:
                     # Field already has value, only overwrite if input had keywords
                     msg_lower = last_msg.lower()
                     has_qty_keyword = any(word in msg_lower for word in ["quantity", "qty", "pieces", "pcs"])
                     has_budget_keyword = any(word in msg_lower for word in ["budget", "price", "rs", "rupees", "₹"])
                     
-                    if (key == "quantity" and has_qty_keyword) or (key == "budget_per_piece" and has_budget_keyword):
+                    if (key == "quantity" and has_qty_keyword) or (key in ["budget_min", "budget_max"] and has_budget_keyword):
                         setattr(current_req, key, value)
                     # else: don't overwrite (keep existing value)
                 else:
@@ -864,7 +921,7 @@ def requirement_extraction_node(state: BotState) -> BotState:
     else:
         requirements = ExtractedRequirements(**extracted)
     
-    print(f"    📊 Final requirements: qty={requirements.quantity}, budget={requirements.budget_per_piece}, timeline={requirements.timeline}, location={requirements.location}, needs_confirmation={requirements.needs_confirmation}")
+    print(f"    📊 Final requirements: qty={requirements.quantity}, budget={requirements.budget_display}, timeline={requirements.timeline}, location={requirements.location}, needs_confirmation={requirements.needs_confirmation}")
     
     return {
         "requirements": requirements,
@@ -880,7 +937,7 @@ def validation_router(state: BotState) -> Literal["validate", "ask_confirmation"
     
     # Check required fields - ✅ ADDED location
     has_quantity = req.quantity is not None
-    has_budget = req.budget_per_piece is not None
+    has_budget = req.budget_max is not None
     has_timeline = req.timeline is not None
     has_location = req.location is not None  # ✅ NEW
     
@@ -907,14 +964,14 @@ def ask_confirmation_node(state: BotState) -> BotState:
         return {"current_stage": "requirement_extraction"}
     
     # Check if needs confirmation
-    if req.needs_confirmation and req.quantity and req.budget_per_piece:
+    if req.needs_confirmation and req.quantity and req.budget_max:
         print("    📋 Asking for confirmation")
         msg = f"""Can you please confirm?
 
-Quantity: {req.quantity} pieces
-Budget: ₹{req.budget_per_piece} per piece
+    Quantity: {req.quantity} pieces
+    Budget: {req.budget_display} per piece
 
-Reply "yes" to confirm or send correct values."""
+    Reply "yes" to confirm or send correct values."""
         
         return {
             "messages": [AIMessage(content=msg)],
@@ -925,7 +982,7 @@ Reply "yes" to confirm or send correct values."""
     missing = []
     if not req.quantity:
         missing.append("Quantity")
-    if not req.budget_per_piece:
+    if not req.budget_max:
         missing.append("Budget per piece")
     if not req.timeline:
         missing.append("When needed")
@@ -976,7 +1033,8 @@ def product_search_node(state: BotState) -> BotState:
     req = state["requirements"]
     
     search_params = {
-        "budget_max": req.budget_per_piece,
+        "budget_min": req.budget_min or 0,
+        "budget_max": req.budget_max or 10000,
         "quantity": req.quantity,
     }
     
@@ -1000,7 +1058,7 @@ def recommendation_node(state: BotState) -> BotState:
     req = state["requirements"]
     
     if not products:
-        msg = f"Sorry mam/sir, no products available for ₹{req.budget_per_piece} per piece.\n\n"
+        msg = f"Sorry mam/sir, no products available for {req.budget_display} per piece.\n\n"
         msg += "Our team will help you find alternatives.\n\n"
         msg += "Thank you! 🙏"
         
@@ -1016,7 +1074,7 @@ def recommendation_node(state: BotState) -> BotState:
     
     requirements_summary = "Based on your requirement,\n\n"
     requirements_summary += f"Number of pieces: {req.quantity} pieces\n"
-    requirements_summary += f"Budget: ₹{req.budget_per_piece} per piece\n"
+    requirements_summary += f"Budget: {req.budget_display} per piece\n"
     requirements_summary += f"Delivery location: {req.location}\n"
     requirements_summary += f"When needed: {timeline_display}\n\n"
     requirements_summary += f"Here are {len(products)} options for you:"
@@ -1349,7 +1407,8 @@ class ProductionVihaBot:
                     "requirements_summary": requirements_summary,  # ✅ For customer
                     "customer_requirements": {  # ✅ For wife alert
                         "quantity": req.quantity,
-                        "budget_per_piece": req.budget_per_piece,
+                        "budget": req.budget_display,
+                        "budget_range": f"₹{req.budget_min}-{req.budget_max}" if req.budget_min and req.budget_max else None,
                         "timeline": format_timeline_display(req.timeline),
                         "location": req.location
                     },
@@ -1372,7 +1431,8 @@ class ProductionVihaBot:
                     "products": None,
                     "customer_requirements": {
                         "quantity": req.quantity if req and req.quantity else None,
-                        "budget_per_piece": req.budget_per_piece if req and req.budget_per_piece else None,
+                        "budget": req.budget_display if req and req.budget_display else None,
+                        "budget_range": f"₹{req.budget_min}-{req.budget_max}" if req and req.budget_min and req.budget_max else None,
                         "timeline": format_timeline_display(req.timeline) if req and req.timeline else None,
                         "location": req.location if req and req.location else None
                     } if req else None,
@@ -1394,11 +1454,12 @@ class ProductionVihaBot:
                     "needs_handoff": True,
                     "products": None,
                     "customer_requirements": {
-                        "quantity": req.quantity if req and req.quantity else None,
-                        "budget_per_piece": req.budget_per_piece if req and req.budget_per_piece else None,
-                        "timeline": format_timeline_display(req.timeline) if req and req.timeline else None,
-                        "location": req.location if req and req.location else None
-                    } if req else None,
+                    "quantity": req.quantity if req and req.quantity else None,
+                    "budget": req.budget_display if req and req.budget_display else None,
+                    "budget_range": f"₹{req.budget_min}-{req.budget_max}" if req and req.budget_min and req.budget_max else None,
+                    "timeline": format_timeline_display(req.timeline) if req and req.timeline else None,
+                    "location": req.location if req and req.location else None
+                } if req else None,
                     "handoff_reason": handoff_reason_text
                 }
             
