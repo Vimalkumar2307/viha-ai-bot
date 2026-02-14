@@ -107,46 +107,74 @@ def extract_customer_requirements(message: str) -> dict:
     
     # ===== STEP 1: Extract TIMELINE FIRST =====
     date_numbers = set()
-    
-    timeline_map = {
-        "asap": "asap", "urgent": "asap", "immediately": "asap",
-        "today": "today", "tomorrow": "tomorrow",
-        "next week": "next_week", "this week": "this_week",
-        "2 weeks": "two_weeks", "month": "one_month"
+
+    # List of VAGUE timeline keywords that need clarification
+    vague_timeline_keywords = [
+        "next week", "this week", "within this week", "by this week",
+        "next month", "this month", "within this month", "by this month",
+        "in 2 weeks", "in 3 weeks", "within 2 weeks",
+        "in 3 days", "in 5 days", "in 10 days", "within 5 days",
+        "end of week", "end of month", "month", "week"
+    ]
+
+    # Check if message contains vague timeline
+    has_vague_timeline = False
+    for keyword in vague_timeline_keywords:
+        if keyword in msg_lower:
+            has_vague_timeline = True
+            print(f"    ⚠️  Vague timeline detected: '{keyword}' - Will ask for exact date")
+            break
+
+    # Only accept EXACT dates or urgent keywords
+    exact_timeline_map = {
+        "asap": "asap",
+        "urgent": "asap", 
+        "immediately": "asap",
+        "today": "today",
+        "tomorrow": "tomorrow",
     }
-    for keyword, value in timeline_map.items():
+
+    # Check for accepted urgent keywords
+    for keyword, value in exact_timeline_map.items():
         if keyword in msg_lower:
             extracted["timeline"] = value
+            print(f"    📅 Accepted urgent timeline: {keyword}")
             break
-    
-    # Date patterns - FIXED to handle both "Feb23" and "Feb 23"
-    date_patterns = [
-        # Month name formats - NO newlines allowed between month and number
-        r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s{0,2}(\d{1,2})\b',  # feb23, feb 23 (max 2 spaces)
-        r'\b(\d{1,2})\s{0,2}(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\b',  # 23 feb (max 2 spaces)
+
+    # Date patterns - Accept specific dates like "Feb 23", "14/02", "25-02-2026"
+    if not extracted["timeline"] and not has_vague_timeline:
+        date_patterns = [
+            r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s{0,2}(\d{1,2})\b',
+            r'\b(\d{1,2})\s{0,2}(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\b',
+            r'\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})\b',
+            r'\b(\d{1,2})[/\-.](\d{1,2})\b',
+        ]
         
-        # Numeric date formats (DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY)
-        r'\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})\b',  # 14/02/2026
-        r'\b(\d{1,2})[/\-.](\d{1,2})\b',                  # 14/02
-    ]
-    
-    for pattern in date_patterns:
-        matches = re.finditer(pattern, msg_lower, re.IGNORECASE)  # ✅ Added re.IGNORECASE flag
-        for match in matches:
-            # ✅ PRESERVE THE ACTUAL DATE TEXT
-            matched_date_text = match.group(0).strip()  # ✅ Added .strip()
+        for pattern in date_patterns:
+            matches = re.finditer(pattern, msg_lower, re.IGNORECASE)
+            for match in matches:
+                matched_date_text = match.group(0).strip()
+                
+                if '\n' in matched_date_text:
+                    continue
+                
+                extracted["timeline"] = matched_date_text
+                print(f"    📅 Extracted exact date: {matched_date_text}")
+                
+                # Extract numeric groups for date_numbers
+                for group_num in range(1, len(match.groups()) + 1):
+                    num = match.group(group_num)
+                    if num and num.isdigit():
+                        date_numbers.add(num)
+                break
             
-            # ✅ VALIDATION: Don't accept if matched text spans multiple lines
-            if '\n' in matched_date_text:
-                continue  # Skip this match
-            
-            extracted["timeline"] = matched_date_text
-            
-            # Extract all numeric groups (skip month names)
-            for group_num in range(1, len(match.groups()) + 1):
-                num = match.group(group_num)
-                if num and num.isdigit():
-                    date_numbers.add(num)
+            if extracted["timeline"]:
+                break
+
+    # If vague timeline detected, mark as needing clarification
+    if has_vague_timeline and not extracted["timeline"]:
+        extracted["timeline"] = "NEEDS_EXACT_DATE"
+        print(f"    ⚠️  Timeline marked as NEEDS_EXACT_DATE")
     
     # ===== STEP 2: Extract QUANTITY (with keywords) =====
     qty_patterns = [
@@ -335,49 +363,43 @@ def extract_customer_requirements(message: str) -> dict:
 def calculate_timeline_urgency(timeline: str) -> dict:
     """
     Calculate delivery date and urgency level from timeline string.
-    Handles both generic codes (asap, tomorrow) and specific dates (Feb23, 14/02).
-    
-    Args:
-        timeline: Timeline string (asap, tomorrow, next_week, Feb23, etc)
-        
-    Returns:
-        Dictionary with delivery_date, days_remaining, urgency_level
+    Validates that dates are in the future and reasonable (within 1 year).
     """
-    from dateutil import parser  # For smart date parsing
+    from dateutil import parser
     today = datetime.now()
     
-    # Predefined timeline codes
+    # Handle urgent keywords
     timeline_config = {
         "asap": {"days": 1, "urgency": "critical"},
         "today": {"days": 0, "urgency": "critical"},
         "tomorrow": {"days": 1, "urgency": "high"},
-        "this_week": {"days": 5, "urgency": "medium"},
-        "next_week": {"days": 7, "urgency": "medium"},
-        "two_weeks": {"days": 14, "urgency": "low"},
-        "one_month": {"days": 30, "urgency": "low"}
     }
     
-    # Check if it's a predefined code
     if timeline.lower() in timeline_config:
         config = timeline_config[timeline.lower()]
         delivery_date = today + timedelta(days=config["days"])
         days_remaining = config["days"]
         urgency = config["urgency"]
     else:
-        # ✅ NEW: Parse actual dates like "Feb23", "23 Feb", "14/02"
+        # Parse specific dates
         try:
-            # Use dateutil parser for smart parsing
-            # It handles: "Feb23", "Feb 23", "23 Feb", "14/02", etc.
             parsed_date = parser.parse(timeline, fuzzy=True, default=today.replace(year=today.year))
             
-            # If parsed date is in the past, assume next year
+            # ✅ Validation 1: If date is in the past, assume next year
             if parsed_date < today:
                 parsed_date = parsed_date.replace(year=today.year + 1)
+            
+            # ✅ Validation 2: Reject dates more than 1 year in future
+            max_future_date = today + timedelta(days=365)
+            if parsed_date > max_future_date:
+                print(f"    ⚠️  Date too far in future: {parsed_date}")
+                # Default to 1 month
+                parsed_date = today + timedelta(days=30)
             
             delivery_date = parsed_date
             days_remaining = (parsed_date - today).days
             
-            # Calculate urgency based on days remaining
+            # Calculate urgency
             if days_remaining <= 2:
                 urgency = "critical"
             elif days_remaining <= 7:
@@ -387,8 +409,9 @@ def calculate_timeline_urgency(timeline: str) -> dict:
             else:
                 urgency = "low"
                 
-        except:
-            # Fallback if parsing fails
+        except Exception as e:
+            print(f"    ❌ Date parsing failed: {e}")
+            # Fallback to 1 week
             delivery_date = today + timedelta(days=7)
             days_remaining = 7
             urgency = "medium"
@@ -935,18 +958,16 @@ def validation_router(state: BotState) -> Literal["validate", "ask_confirmation"
     if not req:
         return "ask_confirmation"
     
-    # Check required fields - ✅ ADDED location
+    # Check required fields
     has_quantity = req.quantity is not None
     has_budget = req.budget_max is not None
-    has_timeline = req.timeline is not None
-    has_location = req.location is not None  # ✅ NEW
+    has_timeline = req.timeline is not None and req.timeline != "NEEDS_EXACT_DATE"  # ✅ NEW
+    has_location = req.location is not None
     
-    # ✅ CHANGED: Added has_location to the check
     if not all([has_quantity, has_budget, has_timeline, has_location]):
         print("    ⚠️  Missing required info")
         return "ask_confirmation"
     
-    # Check if needs confirmation
     if req.needs_confirmation:
         print("    ⚠️  Needs confirmation")
         return "ask_confirmation"
@@ -955,7 +976,7 @@ def validation_router(state: BotState) -> Literal["validate", "ask_confirmation"
     return "validate"
 
 def ask_confirmation_node(state: BotState) -> BotState:
-    """Node 4: Ask for missing info OR confirmation"""
+    """Node 4: Ask for missing info OR confirmation OR exact date"""
     print("  🟧 NODE: ASK CONFIRMATION/MISSING INFO")
     
     req = state.get("requirements")
@@ -963,22 +984,33 @@ def ask_confirmation_node(state: BotState) -> BotState:
     if not req:
         return {"current_stage": "requirement_extraction"}
     
-    # Check if needs confirmation
+    # ✅ NEW: Priority 1 - Check if timeline needs exact date
+    if req.timeline == "NEEDS_EXACT_DATE":
+        print("    📅 Asking for exact date")
+        msg = """Could you please provide an exact date?
+This helps us plan your delivery better. Thank you! 😊"""
+        
+        return {
+            "messages": [AIMessage(content=msg)],
+            "current_stage": "requirement_extraction"
+        }
+    
+    # Priority 2 - Check if needs confirmation
     if req.needs_confirmation and req.quantity and req.budget_max:
         print("    📋 Asking for confirmation")
         msg = f"""Can you please confirm?
 
-    Quantity: {req.quantity} pieces
-    Budget: {req.budget_display} per piece
+Quantity: {req.quantity} pieces
+Budget: {req.budget_display} per piece
 
-    Reply "yes" to confirm or send correct values."""
+Reply "yes" to confirm or send correct values."""
         
         return {
             "messages": [AIMessage(content=msg)],
             "current_stage": "awaiting_confirmation"
         }
     
-    # Otherwise, ask for missing info
+    # Priority 3 - Ask for missing info
     missing = []
     if not req.quantity:
         missing.append("Quantity")
@@ -986,8 +1018,6 @@ def ask_confirmation_node(state: BotState) -> BotState:
         missing.append("Budget per piece")
     if not req.timeline:
         missing.append("When needed")
-    
-    # ✅ CHANGED: Removed "(optional)"
     if not req.location:
         missing.append("Delivery location")
     
@@ -1001,6 +1031,7 @@ def ask_confirmation_node(state: BotState) -> BotState:
         "messages": [AIMessage(content=msg)],
         "current_stage": "requirement_extraction"
     }
+
 
 def validation_node(state: BotState) -> BotState:
     """Node 5: Validate requirements"""
