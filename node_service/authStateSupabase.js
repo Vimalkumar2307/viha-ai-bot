@@ -171,7 +171,7 @@ async function useSupabaseAuthState(dbUrl) {
                 // ✅ EXTRACT PHONE NUMBER from creds if available
                 let phoneNumber = currentPhoneNumber;
                 if (creds.me?.id) {
-                    phoneNumber = creds.me.id.split(':')[0]; // Format: "919865204829:XX@s.whatsapp.net"
+                    phoneNumber = creds.me.id.split(':')[0];
                 }
                 
                 await saveClient.query(`

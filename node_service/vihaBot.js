@@ -180,7 +180,17 @@ async function alertWife(customerNumber, llmResponse, reason = 'NEEDS_HELP') {
                 alertMessage += `${llmResponse.handoff_reason}\n\n`;
             }
             
-            alertMessage += `Please follow up with this customer.\n\nThank you! 🙏`;
+            alertMessage += `Please follow up with this customer.\n\n`;
+            
+            // ✅ ADD THIS: Include reset command
+            alertMessage += `━━━━━━━━━━━━━━━━━━\n`;
+            alertMessage += `💡 *Quick Actions:*\n`;
+            alertMessage += `\n💡 *To reset this chat, reply:*\n`;
+            alertMessage += `RESET ${customerNumber}\n\n`;
+            alertMessage += `*To unlock chat, reply:*\n`;
+            alertMessage += `UNLOCK ${customerNumber}`;
+            
+            alertMessage += `\nThank you! 🙏`;
             
         } else if (reason === 'BOT_ERROR') {
             alertMessage = `⚠️ *BOT ERROR - CUSTOMER NEEDS HELP*\n\n`;
@@ -241,6 +251,162 @@ async function handleIncomingMessage(message) {
         if (jid.includes('@g.us') || jid.includes('status@broadcast')) {
             return;
         }
+
+        // ═══════════════════════════════════════════════════════════════
+        // ✅ ADMIN COMMANDS
+        // ═══════════════════════════════════════════════════════════════
+        
+        const ADMIN_NUMBER = process.env.WIFE_NUMBER;
+        
+        if (jid === ADMIN_NUMBER && !isFromMe) {
+            // Extract message text
+            let messageText = '';
+            if (message.message?.conversation) {
+                messageText = message.message.conversation;
+            } else if (message.message?.extendedTextMessage?.text) {
+                messageText = message.message.extendedTextMessage.text;
+            }
+            
+            const msg = messageText.trim();
+            const msgUpper = msg.toUpperCase(); // ✅ Convert to uppercase for comparison
+            
+            // ──────────────────────────────────────────────────────────
+            // RESET COMMAND (case-insensitive)
+            // ──────────────────────────────────────────────────────────
+            if (msgUpper.startsWith('RESET ') || msgUpper.startsWith('/RESET ')) {
+                // Extract customer number (use original msg to preserve number format)
+                const customerNumber = msg.replace(/RESET\s+/i, '').replace(/\/RESET\s+/i, '').trim();
+                
+                console.log(`\n${'='.repeat(70)}`);
+                console.log(`🔧 ADMIN COMMAND: Reset conversation`);
+                console.log(`   Customer: ${customerNumber}`);
+                console.log(`   Requested by: Wife (${ADMIN_NUMBER.split('@')[0]})`);
+                console.log(`${'='.repeat(70)}\n`);
+                
+                try {
+                    const response = await axios.post(
+                        `${process.env.LLM_API_URL}/reset_conversation`,
+                        { user_id: customerNumber },
+                        {
+                            timeout: 10000,
+                            headers: { 'Content-Type': 'application/json' }
+                        }
+                    );
+                    
+                    alertedCustomers.delete(customerNumber);
+                    
+                    await sendTextMessage(jid, 
+                        `✅ Conversation reset successful!\n\n` +
+                        `Customer: +${customerNumber}\n` +
+                        `Deleted: ${response.data.deleted_checkpoints || 0} checkpoints\n\n` +
+                        `Bot will start fresh on next message.`
+                    );
+                    
+                    console.log(`✅ Reset completed for ${customerNumber}`);
+                    
+                } catch (error) {
+                    console.error(`❌ Reset failed:`, error.message);
+                    await sendTextMessage(jid, 
+                        `❌ Reset failed for +${customerNumber}\n\n` +
+                        `Error: ${error.message}\n\n` +
+                        `Please check number format (no spaces, no +).`
+                    );
+                }
+                
+                return; // ✅ Don't process as normal message
+            }
+            
+            // ──────────────────────────────────────────────────────────
+            // UNLOCK COMMAND (case-insensitive)
+            // ──────────────────────────────────────────────────────────
+            if (msgUpper.startsWith('UNLOCK ') || msgUpper.startsWith('/UNLOCK ')) {
+                const customerNumber = msg.replace(/UNLOCK\s+/i, '').replace(/\/UNLOCK\s+/i, '').trim();
+                
+                console.log(`\n${'='.repeat(70)}`);
+                console.log(`🔓 ADMIN COMMAND: Unlock conversation`);
+                console.log(`   Customer: ${customerNumber}`);
+                console.log(`   Requested by: Wife`);
+                console.log(`${'='.repeat(70)}\n`);
+                
+                try {
+                    await axios.post(
+                        `${process.env.LLM_API_URL}/unlock_conversation`,
+                        { user_id: customerNumber },
+                        {
+                            timeout: 10000,
+                            headers: { 'Content-Type': 'application/json' }
+                        }
+                    );
+                    
+                    alertedCustomers.delete(customerNumber);
+                    
+                    await sendTextMessage(jid, 
+                        `✅ Conversation unlocked!\n\n` +
+                        `Customer: +${customerNumber}\n` +
+                        `Bot can now respond to this customer.`
+                    );
+                    
+                    console.log(`✅ Conversation unlocked for ${customerNumber}`);
+                    
+                } catch (error) {
+                    console.error(`❌ Unlock failed:`, error.message);
+                    await sendTextMessage(jid, 
+                        `❌ Unlock failed for +${customerNumber}\n\n` +
+                        `Error: ${error.message}`
+                    );
+                }
+                
+                return; // ✅ Don't process as normal message
+            }
+            
+            // ──────────────────────────────────────────────────────────
+            // STATUS COMMAND (case-insensitive)
+            // ──────────────────────────────────────────────────────────
+            if (msgUpper === 'STATUS' || msgUpper === '/STATUS') {
+                const uptime = Math.floor(process.uptime());
+                const hours = Math.floor(uptime / 3600);
+                const minutes = Math.floor((uptime % 3600) / 60);
+                
+                await sendTextMessage(jid,
+                    `📊 *Bot Status*\n\n` +
+                    `✅ WhatsApp: Connected\n` +
+                    `✅ Python API: Healthy\n` +
+                    `⏱️ Uptime: ${hours}h ${minutes}m\n` +
+                    `🔒 Alerted customers: ${alertedCustomers.size}\n\n` +
+                    `Type HELP for all commands`
+                );
+                
+                return; // ✅ Don't process as normal message
+            }
+            
+            // ──────────────────────────────────────────────────────────
+            // HELP COMMAND (case-insensitive)
+            // ──────────────────────────────────────────────────────────
+            if (msgUpper === 'HELP' || msgUpper === '/HELP' || msgUpper === 'COMMANDS') {
+                await sendTextMessage(jid, 
+                    `🤖 *Admin Commands*\n\n` +
+                    `📝 *RESET <number>*\n` +
+                    `   Reset customer conversation\n` +
+                    `   Example: RESET 919942463672\n` +
+                    `   Also works: reset, /reset, /RESET\n\n` +
+                    `🔓 *UNLOCK <number>*\n` +
+                    `   Unlock locked conversation\n` +
+                    `   Example: UNLOCK 919942463672\n` +
+                    `   Also works: unlock, /unlock, /UNLOCK\n\n` +
+                    `📊 *STATUS*\n` +
+                    `   Show bot status\n` +
+                    `   Also works: status, /status\n\n` +
+                    `💡 Tip: Commands work with or without /\n` +
+                    `💡 Tip: Get customer number from alert message`
+                );
+                
+                return; // ✅ Don't process as normal message
+            }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // END ADMIN COMMANDS
+        // ═══════════════════════════════════════════════════════════════
         
         // ===== If WIFE sends message, LOCK conversation =====
         if (isFromMe) {

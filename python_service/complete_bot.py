@@ -1065,7 +1065,7 @@ This helps us plan your delivery better. Thank you! 😊"""
 Quantity: {req.quantity} pieces
 Budget: {req.budget_display} per piece
 
-Reply "yes" to confirm or send correct values."""
+Reply "yes" to confirm."""
         
         return {
             "messages": [AIMessage(content=msg)],
