@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const { Boom } = require('@hapi/boom');
 const pino = require('pino');
+const axios = require('axios');
 
 // Import our modules
 const { chatWithLLM, checkLLMHealth, LLM_API_URL } = require('./llmClient');
