@@ -431,20 +431,88 @@ def search_matching_products(
     preferences: list[str] | None = None
 ) -> list:
     """
-    Search products from Supabase database.
-    Returns products matching budget RANGE (min to max).
-    Max budget already includes +20 Rs buffer from extraction.
+    Search products from Supabase including size/type/design variants.
+    Returns ALL matching products with correct quantity-based pricing.
+    Only returns AVAILABLE variants.
     """
     preferences = preferences or []
     matching_products = []
     
-    # Connect to Supabase
     db_url = os.getenv("SUPABASE_DB_URL")
     conn = psycopg.connect(db_url)
     cursor = conn.cursor()
     
     try:
-        # Query products with pricing tiers
+        # ===== Query 1: Products WITH variants =====
+        cursor.execute("""
+            SELECT 
+                p.id, p.name, p.category, p.min_order,
+                pv.size, pv.type, pv.design_name,
+                pv.quantity_range, pv.price_per_piece, pv.image_url
+            FROM products p
+            JOIN product_variants pv ON p.id = pv.product_id
+            WHERE p.min_order <= %s
+              AND pv.is_available = TRUE
+              AND p.has_variants = TRUE
+            ORDER BY p.name, pv.size, pv.price_per_piece
+        """, (quantity,))
+        
+        variant_rows = cursor.fetchall()
+        
+        # Process variants
+        for row in variant_rows:
+            product_id, name, category, min_order, size, vtype, design, qty_range, price, img_url = row
+            
+            # Check quantity range
+            is_in_range = False
+            
+            if '+' in qty_range:
+                min_qty = int(qty_range.split('+')[0].strip())
+                if quantity >= min_qty:
+                    is_in_range = True
+            elif '-' in qty_range:
+                parts = qty_range.split('-')
+                min_qty = int(parts[0].strip())
+                max_qty = int(parts[1].split()[0].strip())
+                if min_qty <= quantity <= max_qty:
+                    is_in_range = True
+            
+            # Check budget range
+            if not is_in_range or price < budget_min or price > budget_max:
+                continue
+            
+            # Build variant display name
+            variant_name = name
+            if size:
+                variant_name += f" - {size}"
+            if vtype:
+                variant_name += f" ({vtype})"
+            if design:
+                variant_name += f" - {design}"
+            
+            # Calculate relevance score
+            score = 100
+            
+            if "eco_friendly" in preferences and category == "Eco-Friendly":
+                score += 30
+            if "traditional" in preferences and category in ["Traditional", "Premium Traditional"]:
+                score += 25
+            if "premium" in preferences and "Premium" in category:
+                score += 20
+            
+            price_ratio = price / budget_max
+            score += int((1 - price_ratio) * 20)
+            
+            matching_products.append({
+                "name": variant_name,
+                "price": price,
+                "category": category,
+                "min_order": min_order,
+                "image_url": img_url,
+                "relevance_score": score
+            })
+        
+        # ===== Query 2: Products WITHOUT variants (regular products) =====
         cursor.execute("""
             SELECT 
                 p.id, p.name, p.category, p.image_url, p.min_order,
@@ -452,14 +520,15 @@ def search_matching_products(
             FROM products p
             JOIN pricing_tiers pt ON p.id = pt.product_id
             WHERE p.min_order <= %s
+              AND (p.has_variants = FALSE OR p.has_variants IS NULL)
             ORDER BY p.id, pt.price_per_piece
         """, (quantity,))
         
-        rows = cursor.fetchall()
+        regular_rows = cursor.fetchall()
         
-        # Group by product (because each product has multiple pricing tiers)
+        # Group regular products by ID
         products_dict = {}
-        for row in rows:
+        for row in regular_rows:
             product_id, name, category, image_url, min_order, qty_range, price = row
             
             if product_id not in products_dict:
@@ -477,7 +546,7 @@ def search_matching_products(
                 'price_per_piece': price
             })
         
-        # Find applicable price for each product based on quantity
+        # Process regular products
         for product in products_dict.values():
             applicable_price = None
             
@@ -499,20 +568,14 @@ def search_matching_products(
                     if min_qty <= quantity <= max_qty:
                         applicable_price = price
                         break
-                
-                # Fallback
-                else:
-                    if price <= budget_max:
-                        applicable_price = price
             
-            # ✅ Skip if price is outside budget range
+            # Skip if price doesn't fit budget
             if applicable_price is None or applicable_price < budget_min or applicable_price > budget_max:
                 continue
             
             # Calculate relevance score
             score = 100
             
-            # Preference matching
             if "eco_friendly" in preferences and product['category'] == "Eco-Friendly":
                 score += 30
             if "traditional" in preferences and product['category'] in ["Traditional", "Premium Traditional"]:
@@ -520,7 +583,6 @@ def search_matching_products(
             if "premium" in preferences and "Premium" in product['category']:
                 score += 20
             
-            # Price competitiveness
             price_ratio = applicable_price / budget_max
             score += int((1 - price_ratio) * 20)
             
@@ -1543,6 +1605,26 @@ if __name__ == "__main__":
     print("=" * 70)
     
     bot = ProductionVihaBot()
+    
+    # ✅ NEW: Reset test users before running tests
+    print("\n🧹 Resetting test user states...")
+    
+    db_url = os.getenv("SUPABASE_DB_URL")
+    conn = psycopg.connect(db_url)
+    cursor = conn.cursor()
+    
+    # Delete checkpoint data for test users
+    cursor.execute("""
+        DELETE FROM checkpoints 
+        WHERE thread_id IN ('test_showcase_user', 'test_ambiguous')
+    """)
+    
+    conn.commit()
+    cursor.close()
+    conn.close()
+    
+    print("✅ Test users reset\n")
+    
     test_user = "test_showcase_user"
     
     print("\n📞 Test Conversation 1: Clear numbers (no confirmation)")

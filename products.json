@@ -9,12 +9,13 @@
   
   "products": [
     {
-      "id": "1",
+      "id": "seed_balls",
       "name": "Seed Balls",
       "category": "Eco-Friendly",
-      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554071/seed_balls_kghgie.jpg",
-      "description": "Eco-friendly plantable seed balls - perfect green gift",
+      "description": "Eco-friendly plantable seed balls",
       "min_order": 100,
+      "has_variants": false,
+      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554071/seed_balls_kghgie.jpg",
       "pricing": [
         {
           "quantity_range": "100+ pieces",
@@ -24,12 +25,13 @@
     },
     
     {
-      "id": "2",
+      "id": "peacock_potli",
       "name": "Peacock Potli Bags",
       "category": "Premium Traditional",
-      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/peacock_potli_bags_wur2sp.jpg",
-      "description": "Premium peacock design potli bags for special occasions",
+      "description": "Premium peacock design potli bags",
       "min_order": 50,
+      "has_variants": false,
+      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/peacock_potli_bags_wur2sp.jpg",
       "pricing": [
         {
           "quantity_range": "50+ pieces",
@@ -39,12 +41,13 @@
     },
     
     {
-      "id": "3",
+      "id": "krishna_magnet",
       "name": "Krishna Fridge Magnet",
       "category": "Religious Gifts",
-      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/krishna_fridgemagent_zfigjw.jpg",
-      "description": "Beautiful Krishna magnets for religious occasions",
+      "description": "Beautiful Krishna magnets",
       "min_order": 25,
+      "has_variants": false,
+      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/krishna_fridgemagent_zfigjw.jpg",
       "pricing": [
         {
           "quantity_range": "25-49 pieces",
@@ -58,14 +61,15 @@
     },
     
     {
-      "id": "4",
+      "id": "snack_box",
       "name": "Plastic Snack Box",
       "category": "Kids Gifts",
-      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/plastic_snack_box_e1pwbb.jpg",
-      "description": "Colorful snack boxes for kids birthday parties - sold ONLY in complete packs of 12",
+      "description": "Colorful snack boxes - sold in packs of 12",
       "min_order": 24,
+      "has_variants": false,
       "unit": "pack of 12 pieces",
-      "special_rule": "MUST order in multiples of 12 only (24, 36, 48, 60, etc.)",
+      "special_rule": "MUST order in multiples of 12 only",
+      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/plastic_snack_box_e1pwbb.jpg",
       "pricing": [
         {
           "quantity_range": "24 pieces (2 packs)",
@@ -83,12 +87,13 @@
     },
     
     {
-      "id": "5",
+      "id": "potli_bags",
       "name": "Potli Bags",
       "category": "Traditional",
-      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/potli_bags_fifty_isefv2.jpg",
-      "description": "Traditional colorful potli bags for Indian weddings",
+      "description": "Traditional colorful potli bags",
       "min_order": 35,
+      "has_variants": false,
+      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/potli_bags_fifty_isefv2.jpg",
       "pricing": [
         {
           "quantity_range": "35+ pieces",
@@ -98,12 +103,13 @@
     },
     
     {
-      "id": "6",
+      "id": "hand_purse",
       "name": "Hand Purse",
       "category": "Accessories",
-      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/hand_purse_twlj2u.jpg",
-      "description": "Beautiful handcrafted purses for weddings and parties",
+      "description": "Handcrafted purses",
       "min_order": 25,
+      "has_variants": false,
+      "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1766554070/hand_purse_twlj2u.jpg",
       "pricing": [
         {
           "quantity_range": "25-49 pieces",
@@ -112,6 +118,173 @@
         {
           "quantity_range": "50+ pieces",
           "price_per_piece": 50
+        }
+      ]
+    },
+    
+    {
+      "id": "meenakari_box",
+      "name": "Meenakari Box",
+      "category": "Traditional",
+      "description": "Beautiful traditional meenakari boxes",
+      "min_order": 25,
+      "has_variants": true,
+      "variants": [
+        {
+          "size": "4 inch",
+          "type": null,
+          "design_name": null,
+          "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1771378738/meenakari_4inch_x0i7dn.jpg",
+          "is_available": true,
+          "pricing": [
+            {"quantity_range": "25-49 pieces", "price_per_piece": 99},
+            {"quantity_range": "50-199 pieces", "price_per_piece": 99},
+            {"quantity_range": "200+ pieces", "price_per_piece": 97}
+          ]
+        },
+        {
+          "size": "4.5 inch",
+          "type": null,
+          "design_name": null,
+          "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1771378737/meenakari_4halfinch_cyrzzz.jpg",
+          "is_available": true,
+          "pricing": [
+            {"quantity_range": "25-49 pieces", "price_per_piece": 125},
+            {"quantity_range": "50+ pieces", "price_per_piece": 120}
+          ]
+        },
+        {
+          "size": "5 inch",
+          "type": null,
+          "design_name": null,
+          "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1771378738/meenakari_5inch_ztbpk2.jpg",
+          "is_available": true,
+          "pricing": [
+            {"quantity_range": "25-49 pieces", "price_per_piece": 145},
+            {"quantity_range": "50+ pieces", "price_per_piece": 140}
+          ]
+        }
+      ]
+    },
+    
+    {
+      "id": "pichwai_jar",
+      "name": "Pichwai Jar",
+      "category": "Traditional",
+      "description": "Traditional pichwai design jars",
+      "min_order": 25,
+      "has_variants": true,
+      "variants": [
+        {
+          "size": "4 inch",
+          "type": "jar",
+          "design_name": null,
+          "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1771378867/pichwai_jar_4inch_kbvvyq.jpg",
+          "is_available": true,
+          "pricing": [
+            {"quantity_range": "25-49 pieces", "price_per_piece": 125},
+            {"quantity_range": "50+ pieces", "price_per_piece": 120}
+          ]
+        },
+        {
+          "size": "5 inch",
+          "type": "jar",
+          "design_name": null,
+          "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1771378868/pichwai_jar_5inch_round_i7wu2t.jpg",
+          "is_available": true,
+          "pricing": [
+            {"quantity_range": "25-49 pieces", "price_per_piece": 190},
+            {"quantity_range": "50+ pieces", "price_per_piece": 185}
+          ]
+        },
+        {
+          "size": "5 inch",
+          "type": "cylinder",
+          "design_name": null,
+          "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1771379624/pichwai_cylinder_koc0ce.jpg",
+          "is_available": true,
+          "pricing": [
+            {"quantity_range": "25-49 pieces", "price_per_piece": 230},
+            {"quantity_range": "50+ pieces", "price_per_piece": 225}
+          ]
+        },
+        {
+          "size": "5 inch",
+          "type": "matki",
+          "design_name": null,
+          "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1771379624/pichwai_matki_yh39ey.jpg",
+          "is_available": true,
+          "pricing": [
+            {"quantity_range": "25-49 pieces", "price_per_piece": 200},
+            {"quantity_range": "50+ pieces", "price_per_piece": 195}
+          ]
+        }
+      ]
+    },
+    
+    {
+      "id": "airtight_container",
+      "name": "Air Tight Container",
+      "category": "Practical Gifts",
+      "description": "Durable airtight containers in various designs",
+      "min_order": 25,
+      "has_variants": true,
+      "variants": [
+        {
+          "size": "small",
+          "type": null,
+          "design_name": "Sandal",
+          "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1771377959/smalltin_sandal_cv3lxy.jpg",
+          "is_available": true,
+          "pricing": [
+            {"quantity_range": "25-49 pieces", "price_per_piece": 50},
+            {"quantity_range": "50+ pieces", "price_per_piece": 48}
+          ]
+        },
+        {
+          "size": "small",
+          "type": null,
+          "design_name": "Old_Peacock",
+          "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1771377959/smalltin_old_peacock_a0lj2r.jpg",
+          "is_available": true,
+          "pricing": [
+            {"quantity_range": "25-49 pieces", "price_per_piece": 50},
+            {"quantity_range": "50+ pieces", "price_per_piece": 48}
+          ]
+        },
+        {
+          "size": "big",
+          "type": null,
+          "design_name": "Sandal",
+          "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1771377715/tin_sandal_old_rt0dzn.jpg",
+          "is_available": true,
+          "pricing": [
+            {"quantity_range": "25-49 pieces", "price_per_piece": 60},
+            {"quantity_range": "50+ pieces", "price_per_piece": 58}
+          ]
+        },
+        {
+          "size": "big",
+          "type": null,
+          "design_name": "Old_Peacock",
+          "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1771377702/tin_peacock_old_o84g78.jpg",
+          "is_available": true,
+          "pricing": [
+            {"quantity_range": "25-49 pieces", "price_per_piece": 60},
+            {"quantity_range": "50+ pieces", "price_per_piece": 58}
+          ]
+        },
+        {
+          "size": "big",
+          "type": null,
+          "design_name": "Mandla",
+          "image_url": "https://res.cloudinary.com/df0wqiv5r/image/upload/v1771377698/tin_mandla_orange_tofxdv.jpg",
+          "is_available": false,
+          "stock_status": "out_of_stock",
+          "pricing": [
+            {"quantity_range": "25-49 pieces", "price_per_piece": 60},
+            {"quantity_range": "50+ pieces", "price_per_piece": 58}
+          ]
         }
       ]
     }
