@@ -493,8 +493,6 @@ async function handleIncomingMessage(message) {
                     summaryMsg += `⏳ Incomplete: ${d.incomplete}\n\n`;
 
                     summaryMsg += `📍 Top Locations: ${d.top_locations}\n`;
-                    summaryMsg += d.avg_quantity ? `📦 Avg Quantity: ${d.avg_quantity} pcs\n` : '';
-                    summaryMsg += d.avg_budget   ? `💰 Avg Budget: ₹${d.avg_budget}/pc\n`    : '';
 
                     // ── Lead details section ──
                     if (d.leads && d.leads.length > 0) {
@@ -503,11 +501,11 @@ async function handleIncomingMessage(message) {
 
                         d.leads.forEach((lead, index) => {
                             const qty      = lead.quantity ? `${lead.quantity} pcs` : 'Qty ?';
+                            const budget   = lead.budget   ? `₹${lead.budget}/pc`   : 'Budget ?';
                             const when     = lead.timeline || 'Date ?';
                             const location = lead.location || 'Location ?';
                             summaryMsg += `${index + 1}. +${lead.customer_number}\n`;
-                            summaryMsg += `   ${qty} | ${when} | ${location}\n`;
-                            summaryMsg += `   Status: ${lead.status}\n\n`;
+                            summaryMsg += `   ${qty} | ${budget} | ${when} | ${location}\n`;
                         });
                     } else {
                         summaryMsg += `\n━━━━━━━━━━━━━━━━━━\n`;

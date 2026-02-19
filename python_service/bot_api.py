@@ -439,13 +439,11 @@ async def get_leads(request: LeadsRequest):
             leads.append({
                 "customer_number": customer_number,
                 "quantity":        quantity,
-                "budget":          f"₹{budget}" if budget else None,
-                "location":        location,
+                "budget":          f"₹{int(budget)}" if budget else None,
                 "timeline":        timeline,
+                "location":        location,
                 "status":          status,
-                "last_message":    last_msg,
-                "created_at":      created_str,
-                "updated_at":      updated_str
+                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-"
             })
 
         return {
@@ -592,10 +590,10 @@ async def get_summary(request: SummaryRequest):
                 # ── Lead details (sorted by priority) ────────
                 cursor.execute("""
                     SELECT
-                        customer_number, quantity, timeline,
-                        location, status, updated_at
+                        customer_number, quantity, budget_per_piece,
+                        timeline, location, status, updated_at
                     FROM leads
-                    WHERE created_at BETWEEN %s AND %s
+                    WHERE created_at BETWEEN %  s AND %s
                     ORDER BY
                         CASE status
                             WHEN 'products_shown' THEN
@@ -613,7 +611,7 @@ async def get_summary(request: SummaryRequest):
         # ── Build leads detail list ───────────────────────────
         leads = []
         for row in leads_rows:
-            customer_number, quantity, timeline, location, status, updated_at = row
+            customer_number, quantity, budget, timeline, location, status, updated_at = row
             leads.append({
                 "customer_number": customer_number,
                 "quantity":        quantity,
