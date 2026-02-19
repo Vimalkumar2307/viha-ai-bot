@@ -30,6 +30,15 @@ const {
 const USE_LLM = process.env.USE_LLM === "true";
 const MAX_RECONNECT_ATTEMPTS = 5;
 const WIFE_NUMBER = process.env.WIFE_NUMBER || '919865204829@s.whatsapp.net';
+const ADMIN_PHONE = (process.env.WIFE_NUMBER || '').split('@')[0]; // 919865204829
+let wifeLidJid = null;
+
+function isAdminMessage(jid) {
+    if (jid === WIFE_NUMBER) return true;
+    if (jid.includes(ADMIN_PHONE)) return true;
+    if (wifeLidJid && jid === wifeLidJid) return true;
+    return false;
+}
 
 // Bot state
 let sock = null;
@@ -270,7 +279,11 @@ async function handleIncomingMessage(message) {
 
         const ADMIN_NUMBER = process.env.WIFE_NUMBER;
 
-        if (jid === ADMIN_NUMBER && !isFromMe) {
+        if (isAdminMessage(jid) && !isFromMe) {
+            if (jid.includes('@lid') && !wifeLidJid) {
+                wifeLidJid = jid;
+                console.log(`✅ Learned wife's LID JID: ${wifeLidJid}`);
+            }
             console.log(`✅ MESSAGE FROM WIFE DETECTED`);
             
             // Extract message text
@@ -431,7 +444,7 @@ async function handleIncomingMessage(message) {
             const customerNumber = jid.split('@')[0];
             
             // Don't lock if wife is messaging herself
-            if (customerNumber === '919865204829') {
+            if (isAdminMessage(jid)) {
                 return;
             }
             
