@@ -518,6 +518,138 @@ async def get_lead_info(customer_number: str):
 
 
 # ============================================================
+# SUMMARY ENDPOINT
+# ============================================================
+
+class SummaryRequest(BaseModel):
+    start_date: str | None = None  # "2026-02-19"
+    end_date: str | None = None    # "2026-02-19"
+
+@app.post("/summary")
+async def get_summary(request: SummaryRequest):
+    """
+    Return business summary for a date range.
+    Default: today
+    """
+    try:
+        # Parse dates
+        if request.start_date:
+            start = datetime.strptime(request.start_date, "%Y-%m-%d")
+        else:
+            start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        if request.end_date:
+            end = datetime.strptime(request.end_date, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59
+            )
+        else:
+            end = datetime.now().replace(hour=23, minute=59, second=59)
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+
+                # ── Overview counts ──────────────────────────
+                cursor.execute("""
+                    SELECT
+                        COUNT(*)                                            AS total,
+                        COUNT(*) FILTER (WHERE status = 'products_shown')  AS products_shown,
+                        COUNT(*) FILTER (WHERE status = 'locked')          AS locked,
+                        COUNT(*) FILTER (WHERE status = 'requirements_collecting') AS incomplete,
+                        COUNT(*) FILTER (
+                            WHERE status = 'products_shown'
+                            AND updated_at < NOW() - INTERVAL '1 day'
+                        )                                                   AS followup_pending
+                    FROM leads
+                    WHERE created_at BETWEEN %s AND %s
+                """, (start, end))
+                overview = cursor.fetchone()
+                total, products_shown, locked, incomplete, followup_pending = overview
+
+                # ── Averages (quantity > 0 only) ─────────────
+                cursor.execute("""
+                    SELECT
+                        ROUND(AVG(quantity))         AS avg_qty,
+                        ROUND(AVG(budget_per_piece)) AS avg_budget
+                    FROM leads
+                    WHERE created_at BETWEEN %s AND %s
+                      AND quantity > 0
+                """, (start, end))
+                avgs = cursor.fetchone()
+                avg_qty, avg_budget = avgs if avgs else (None, None)
+
+                # ── Top locations ────────────────────────────
+                cursor.execute("""
+                    SELECT location, COUNT(*) AS cnt
+                    FROM leads
+                    WHERE created_at BETWEEN %s AND %s
+                      AND location IS NOT NULL
+                    GROUP BY location
+                    ORDER BY cnt DESC
+                    LIMIT 3
+                """, (start, end))
+                top_locations = cursor.fetchall()
+
+                # ── Lead details (sorted by priority) ────────
+                cursor.execute("""
+                    SELECT
+                        customer_number, quantity, timeline,
+                        location, status, updated_at
+                    FROM leads
+                    WHERE created_at BETWEEN %s AND %s
+                    ORDER BY
+                        CASE status
+                            WHEN 'products_shown' THEN
+                                CASE WHEN updated_at < NOW() - INTERVAL '1 day'
+                                     THEN 1 ELSE 3 END
+                            WHEN 'requirements_collecting' THEN 2
+                            WHEN 'new'                     THEN 4
+                            WHEN 'locked'                  THEN 5
+                            ELSE 6
+                        END,
+                        quantity DESC NULLS LAST
+                """, (start, end))
+                leads_rows = cursor.fetchall()
+
+        # ── Build leads detail list ───────────────────────────
+        leads = []
+        for row in leads_rows:
+            customer_number, quantity, timeline, location, status, updated_at = row
+            leads.append({
+                "customer_number": customer_number,
+                "quantity":        quantity,
+                "timeline":        timeline,
+                "location":        location,
+                "status":          status,
+                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-"
+            })
+
+        # ── Top locations string ──────────────────────────────
+        locations_str = ", ".join(
+            f"{loc}({cnt})" for loc, cnt in top_locations
+        ) if top_locations else "No data"
+
+        return {
+            "status":          "success",
+            "start_date":      start.strftime("%d %b %Y"),
+            "end_date":        end.strftime("%d %b %Y"),
+            "total":           total,
+            "products_shown":  products_shown,
+            "locked":          locked,
+            "incomplete":      incomplete,
+            "followup_pending": followup_pending,
+            "avg_quantity":    int(avg_qty)    if avg_qty    else None,
+            "avg_budget":      int(avg_budget) if avg_budget else None,
+            "top_locations":   locations_str,
+            "leads":           leads
+        }
+
+    except Exception as e:
+        print(f"❌ Summary failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+
+# ============================================================
 # CHAT ENDPOINT
 # ============================================================
 

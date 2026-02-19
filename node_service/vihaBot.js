@@ -178,6 +178,84 @@ const lockedConversationsCache = new Set();
 // Store pending messages for each user
 const userMessageQueues = new Map();
 
+/**
+ * Parse date range from admin command message
+ * Supports:
+ *   "SUMMARY"              → today
+ *   "SUMMARY 7"            → last 7 days
+ *   "SUMMARY 12/02 19/02"  → date range
+ *   "SUMMARY 12/02/2026 19/02/2026" → date range with year
+ */
+function parseDateRange(parts) {
+    const today = new Date();
+
+    const formatDate = (d) => d.toISOString().split('T')[0]; // "2026-02-19"
+
+    const parseDate = (str) => {
+        // Handle dd/mm or dd/mm/yyyy
+        const parts = str.split('/');
+        if (parts.length >= 2) {
+            const day   = parseInt(parts[0]);
+            const month = parseInt(parts[1]) - 1;
+            const year  = parts[2] ? parseInt(parts[2]) : today.getFullYear();
+            return new Date(year, month, day);
+        }
+        return null;
+    };
+
+    // No argument → today
+    if (parts.length === 1) {
+        return {
+            start_date: formatDate(today),
+            end_date:   formatDate(today),
+            label:      `Today (${today.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })})`
+        };
+    }
+
+    // Single number → last N days
+    if (parts.length === 2 && !isNaN(parts[1])) {
+        const days  = parseInt(parts[1]);
+        const start = new Date(today);
+        start.setDate(today.getDate() - (days - 1));
+        return {
+            start_date: formatDate(start),
+            end_date:   formatDate(today),
+            label:      `Last ${days} day(s)`
+        };
+    }
+
+    // Two dates → date range
+    // Two dates → date range
+    if (parts.length === 3) {
+        const start = parseDate(parts[1]);
+        const end   = parseDate(parts[2]);
+        if (start && end && !isNaN(start) && !isNaN(end)) {
+            if (end < start) {
+                return { error: `❌ End date cannot be before start date.\n\nCorrect format:\nSUMMARY 12/02 19/02` };
+            }
+            return {
+                start_date: formatDate(start),
+                end_date:   formatDate(end),
+                label:      `${parts[1]} to ${parts[2]}`
+            };
+        }
+        // Invalid date format
+        return { error: `❌ Invalid date format.\n\nCorrect formats:\nSUMMARY → today\nSUMMARY 7 → last 7 days\nSUMMARY 12/02 19/02 → date range\nSUMMARY 12/02/2026 19/02/2026 → with year` };
+    }
+
+    // Unknown format
+    if (parts.length > 1) {
+        return { error: `❌ Invalid format.\n\nCorrect formats:\nSUMMARY → today\nSUMMARY 7 → last 7 days\nSUMMARY 12/02 19/02 → date range` };
+    }
+
+    // Fallback → today
+    return {
+        start_date: formatDate(today),
+        end_date:   formatDate(today),
+        label:      'Today'
+    };
+}
+
 async function handleIncomingMessage(message) {
     try {
         const jid = message.key.remoteJid;
@@ -378,6 +456,78 @@ async function handleIncomingMessage(message) {
                 return;
             }
 
+            // SUMMARY COMMAND
+            if (msgUpper.startsWith('SUMMARY') || msgUpper === 'SUMMARY') {
+                console.log(`✅✅✅ SUMMARY COMMAND MATCHED!`);
+
+                const parts = msg.trim().split(/\s+/);
+                const dateRange = parseDateRange(parts);
+
+                if (dateRange.error) {
+                    await sendTextMessage(jid, dateRange.error);
+                    return;
+                }
+
+                const { start_date, end_date, label } = dateRange;
+
+                try {
+                    const response = await axios.post(
+                        `${process.env.LLM_API_URL}/summary`,
+                        { start_date, end_date },
+                        { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+                    );
+
+                    const d = response.data;
+
+                    if (d.status === 'error') {
+                        await sendTextMessage(jid, `❌ Summary failed: ${d.message}`);
+                        return;
+                    }
+
+                    // ── Overview section ──
+                    let summaryMsg = `📊 *Summary - ${label}*\n\n`;
+                    summaryMsg += `📥 New Leads: ${d.total}\n`;
+                    summaryMsg += `📸 Products Shown: ${d.products_shown}\n`;
+                    summaryMsg += `⚠️  Follow-up Pending: ${d.followup_pending}\n`;
+                    summaryMsg += `🔒 Wife Handling: ${d.locked}\n`;
+                    summaryMsg += `⏳ Incomplete: ${d.incomplete}\n\n`;
+
+                    summaryMsg += `📍 Top Locations: ${d.top_locations}\n`;
+                    summaryMsg += d.avg_quantity ? `📦 Avg Quantity: ${d.avg_quantity} pcs\n` : '';
+                    summaryMsg += d.avg_budget   ? `💰 Avg Budget: ₹${d.avg_budget}/pc\n`    : '';
+
+                    // ── Lead details section ──
+                    if (d.leads && d.leads.length > 0) {
+                        summaryMsg += `\n━━━━━━━━━━━━━━━━━━\n`;
+                        summaryMsg += `📋 *Lead Details:*\n\n`;
+
+                        d.leads.forEach((lead, index) => {
+                            const qty      = lead.quantity ? `${lead.quantity} pcs` : 'Qty ?';
+                            const when     = lead.timeline || 'Date ?';
+                            const location = lead.location || 'Location ?';
+                            summaryMsg += `${index + 1}. +${lead.customer_number}\n`;
+                            summaryMsg += `   ${qty} | ${when} | ${location}\n`;
+                            summaryMsg += `   Status: ${lead.status}\n\n`;
+                        });
+                    } else {
+                        summaryMsg += `\n━━━━━━━━━━━━━━━━━━\n`;
+                        summaryMsg += `No leads found for this period.\n`;
+                    }
+
+                    summaryMsg += `━━━━━━━━━━━━━━━━━━\n`;
+                    summaryMsg += `💡 FOLLOWUP for pending list\n`;
+                    summaryMsg += `💡 HOTLEADS for big orders`;
+
+                    await sendTextMessage(jid, summaryMsg);
+                    console.log(`✅ Summary sent for ${label}\n`);
+
+                } catch (error) {
+                    console.error(`❌ Summary failed:`, error.message);
+                    await sendTextMessage(jid, `❌ Failed to fetch summary: ${error.message}`);
+                }
+                return;
+            }
+
             // INFO COMMAND
             if (msgUpper.startsWith('INFO ') || msgUpper.startsWith('/INFO ')) {
                 console.log(`✅✅✅ INFO COMMAND MATCHED!`);
@@ -443,6 +593,9 @@ async function handleIncomingMessage(message) {
                 `📋 *LEADS <days>*\n` +
                 `   Show leads for last N days\n` +
                 `   Example: LEADS 7\n\n` +
+                `📊 *SUMMARY <days or date range>*\n` +
+                `   Business overview\n` +
+                `   Example: SUMMARY / SUMMARY 7 / SUMMARY 12/02 19/02\n\n` +
                 `🔍 *INFO <number>*\n` +
                 `   Show customer details\n` +
                 `   Example: INFO 919942463672\n\n` +
