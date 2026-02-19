@@ -1,14 +1,15 @@
 """
 FastAPI wrapper for complete bot with conversation locking
+Version: 4.0 - Added leads tracking, persistent locks, LEADS/INFO endpoints
 """
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from complete_bot import ProductionVihaBot
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
-import psycopg 
+import psycopg
 
 app = FastAPI()
 
@@ -21,34 +22,232 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ PRODUCTION: Validate environment on startup
+# ============================================================
+# DATABASE HELPER
+# ============================================================
+
+def get_db_connection():
+    """Get a database connection"""
+    db_url = os.getenv("SUPABASE_DB_URL")
+    return psycopg.connect(db_url)
+
+
+# ============================================================
+# LEADS HELPER
+# ============================================================
+
+def save_or_update_lead(customer_number: str, response: dict, status: str = None):
+    """
+    Insert lead if new, update if exists.
+    Called after every bot interaction that has requirements.
+    """
+    try:
+        req = response.get("customer_requirements")
+
+        # Determine status from response if not provided
+        if not status:
+            if response.get("reply") == "[SEND_PRODUCT_IMAGES_WITH_SUMMARY]":
+                status = "products_shown"
+            elif response.get("needs_handoff"):
+                status = "follow_up"
+            else:
+                status = "requirements_collecting"
+
+        # Extract fields safely
+        quantity    = req.get("quantity")   if req else None
+        budget      = req.get("budget")     if req else None
+        location    = req.get("location")   if req else None
+        timeline    = req.get("timeline")   if req else None
+        last_msg    = response.get("last_message", "")
+
+        # Parse budget string to numeric (e.g. "₹50" → 50.0)
+        budget_numeric = None
+        if budget:
+            import re
+            numbers = re.findall(r'\d+\.?\d*', str(budget))
+            if numbers:
+                budget_numeric = float(numbers[0])
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                # Check if lead exists
+                cursor.execute(
+                    "SELECT id FROM leads WHERE customer_number = %s",
+                    (customer_number,)
+                )
+                existing = cursor.fetchone()
+
+                if existing:
+                    # UPDATE existing lead
+                    cursor.execute("""
+                        UPDATE leads SET
+                            quantity         = COALESCE(%s, quantity),
+                            budget_per_piece = COALESCE(%s, budget_per_piece),
+                            location         = COALESCE(%s, location),
+                            timeline         = COALESCE(%s, timeline),
+                            status           = %s,
+                            last_message     = COALESCE(%s, last_message),
+                            updated_at       = NOW()
+                        WHERE customer_number = %s
+                    """, (
+                        quantity, budget_numeric, location, timeline,
+                        status, last_msg, customer_number
+                    ))
+                    print(f"    📝 Lead updated: {customer_number} → {status}")
+                else:
+                    # INSERT new lead
+                    cursor.execute("""
+                        INSERT INTO leads
+                            (customer_number, quantity, budget_per_piece,
+                             location, timeline, status, last_message)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        customer_number, quantity, budget_numeric,
+                        location, timeline, status, last_msg
+                    ))
+                    print(f"    📝 Lead created: {customer_number} → {status}")
+
+                conn.commit()
+
+    except Exception as e:
+        print(f"    ⚠️  Lead save failed (non-critical): {e}")
+
+
+# ============================================================
+# LOCKED CONVERSATIONS - Supabase persistent
+# ============================================================
+
+def is_conversation_locked(user_id: str) -> dict | None:
+    """Check if conversation is locked in Supabase. Returns lock info or None."""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT status, updated_at
+                    FROM leads
+                    WHERE customer_number = %s AND status = 'locked'
+                """, (user_id,))
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        "locked_at": row[1].isoformat() if row[1] else None,
+                        "locked_by": "wife",
+                        "reason": "wife_interrupted"
+                    }
+                return None
+    except Exception as e:
+        print(f"⚠️  Lock check failed: {e}")
+        # Fallback to in-memory
+        return locked_conversations_cache.get(user_id)
+
+
+def set_conversation_lock(user_id: str):
+    """Lock conversation in Supabase + memory cache."""
+    lock_info = {
+        "locked_at": datetime.now().isoformat(),
+        "locked_by": "wife",
+        "reason": "wife_interrupted"
+    }
+    # Memory cache (fast lookup)
+    locked_conversations_cache[user_id] = lock_info
+
+    # Supabase (persistent)
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT id FROM leads WHERE customer_number = %s",
+                    (user_id,)
+                )
+                if cursor.fetchone():
+                    cursor.execute("""
+                        UPDATE leads SET status = 'locked', updated_at = NOW()
+                        WHERE customer_number = %s
+                    """, (user_id,))
+                else:
+                    cursor.execute("""
+                        INSERT INTO leads (customer_number, status)
+                        VALUES (%s, 'locked')
+                    """, (user_id,))
+                conn.commit()
+    except Exception as e:
+        print(f"⚠️  Lock persist failed: {e}")
+
+
+def remove_conversation_lock(user_id: str):
+    """Unlock conversation in Supabase + memory cache."""
+    locked_conversations_cache.pop(user_id, None)
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE leads SET status = 'follow_up', updated_at = NOW()
+                    WHERE customer_number = %s
+                """, (user_id,))
+                conn.commit()
+    except Exception as e:
+        print(f"⚠️  Unlock persist failed: {e}")
+
+
+# ============================================================
+# STARTUP
+# ============================================================
+
+# In-memory cache (fast lookup, lost on restart — Supabase is source of truth)
+locked_conversations_cache = {}
+
+
 @app.on_event("startup")
 async def startup_event():
-    """Validate required environment variables"""
+    """Validate environment and load locked conversations from Supabase"""
     print("\n" + "="*70)
     print("🔍 VALIDATING PRODUCTION ENVIRONMENT")
     print("="*70)
-    
-    db_url = os.getenv("SUPABASE_DB_URL")
+
+    db_url  = os.getenv("SUPABASE_DB_URL")
     groq_key = os.getenv("GROQ_API_KEY")
-    
+
     if not db_url:
-        print("❌ CRITICAL: SUPABASE_DB_URL not set!")
         raise ValueError("SUPABASE_DB_URL environment variable is required")
-    
     if not groq_key:
-        print("❌ CRITICAL: GROQ_API_KEY not set!")
         raise ValueError("GROQ_API_KEY environment variable is required")
-    
+
     print(f"✅ Database URL: {db_url[:50]}...{db_url[-20:]}")
     print(f"✅ Groq API Key: {groq_key[:20]}...")
+
+    # Load locked conversations from Supabase into memory cache
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT customer_number, updated_at
+                    FROM leads WHERE status = 'locked'
+                """)
+                rows = cursor.fetchall()
+                for row in rows:
+                    locked_conversations_cache[row[0]] = {
+                        "locked_at": row[1].isoformat() if row[1] else None,
+                        "locked_by": "wife",
+                        "reason": "wife_interrupted"
+                    }
+        print(f"✅ Loaded {len(locked_conversations_cache)} locked conversations from Supabase")
+    except Exception as e:
+        print(f"⚠️  Could not load locked conversations: {e}")
+
     print("="*70 + "\n")
 
-# Initialize bot
+
+# ============================================================
+# BOT INITIALIZATION
+# ============================================================
+
 bot = ProductionVihaBot()
 
-# Store locked conversations (in production, use Redis or database)
-locked_conversations = {}
+
+# ============================================================
+# PYDANTIC MODELS
+# ============================================================
 
 class ChatRequest(BaseModel):
     user_id: str
@@ -57,115 +256,103 @@ class ChatRequest(BaseModel):
 class LockRequest(BaseModel):
     user_id: str
 
+class LeadsRequest(BaseModel):
+    days: int = 7  # Default: last 7 days
+
+
+# ============================================================
+# ENDPOINTS
+# ============================================================
+
 @app.post("/lock_conversation")
 async def lock_conversation(request: LockRequest):
-    """
-    Lock a conversation - bot will NEVER respond to this customer again
-    (until manually unlocked)
-    """
     user_id = request.user_id
-    
-    locked_conversations[user_id] = {
-        "locked_at": datetime.now().isoformat(),
-        "locked_by": "wife",
-        "reason": "wife_interrupted"
-    }
-    
+
+    set_conversation_lock(user_id)
+
     print(f"\n{'='*70}")
     print(f"🔒 CONVERSATION PERMANENTLY LOCKED")
     print(f"   Customer: {user_id}")
     print(f"   Locked at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"   Bot will stay SILENT for this customer")
     print(f"{'='*70}\n")
-    
+
     return {
         "status": "success",
         "message": f"Conversation locked for {user_id}",
-        "locked_at": locked_conversations[user_id]["locked_at"]
+        "locked_at": locked_conversations_cache[user_id]["locked_at"]
     }
+
 
 @app.post("/unlock_conversation")
 async def unlock_conversation(request: LockRequest):
-    """
-    Unlock a conversation - bot can respond again
-    """
     user_id = request.user_id
-    
-    if user_id in locked_conversations:
-        lock_info = locked_conversations[user_id]
-        del locked_conversations[user_id]
-        
+
+    if user_id in locked_conversations_cache:
+        lock_info = locked_conversations_cache[user_id].copy()
+        remove_conversation_lock(user_id)
+
         print(f"\n{'='*70}")
         print(f"🔓 CONVERSATION UNLOCKED")
         print(f"   Customer: {user_id}")
-        print(f"   Was locked at: {lock_info['locked_at']}")
-        print(f"   Bot can respond again")
         print(f"{'='*70}\n")
-        
+
         return {
             "status": "success",
             "message": f"Conversation unlocked for {user_id}",
             "was_locked_at": lock_info["locked_at"]
         }
     else:
+        # Check Supabase in case memory cache is stale
+        lock_info = is_conversation_locked(user_id)
+        if lock_info:
+            remove_conversation_lock(user_id)
+            return {
+                "status": "success",
+                "message": f"Conversation unlocked for {user_id}"
+            }
         return {
             "status": "not_locked",
             "message": f"Conversation was not locked for {user_id}"
         }
-    
+
+
 @app.post("/reset_conversation")
 async def reset_conversation(request: LockRequest):
-    """
-    Reset a conversation - clears all checkpoint state from Supabase
-    Bot will start fresh on next message (useful for testing)
-    """
     user_id = request.user_id
-    
+
     try:
-        import psycopg
-        
-        db_url = os.getenv("SUPABASE_DB_URL")
-        
-        # Connect to Supabase
-        conn = psycopg.connect(db_url)
-        cursor = conn.cursor()
-        
-        # Delete all checkpoints for this specific user
-        cursor.execute("""
-            DELETE FROM checkpoints 
-            WHERE thread_id = %s
-        """, (user_id,))
-        
-        deleted_checkpoints = cursor.rowcount
-        
-        # Delete related checkpoint writes
-        cursor.execute("""
-            DELETE FROM checkpoint_writes 
-            WHERE thread_id = %s
-        """, (user_id,))
-        
-        deleted_writes = cursor.rowcount
-        
-        # Commit changes
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
-        # Also remove from locked conversations if present
-        was_locked = False
-        if user_id in locked_conversations:
-            del locked_conversations[user_id]
-            was_locked = True
-        
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+
+                # Delete checkpoints
+                cursor.execute(
+                    "DELETE FROM checkpoints WHERE thread_id = %s", (user_id,)
+                )
+                deleted_checkpoints = cursor.rowcount
+
+                cursor.execute(
+                    "DELETE FROM checkpoint_writes WHERE thread_id = %s", (user_id,)
+                )
+                deleted_writes = cursor.rowcount
+
+                # Delete lead entry so bot starts fresh
+                cursor.execute(
+                    "DELETE FROM leads WHERE customer_number = %s", (user_id,)
+                )
+
+                conn.commit()
+
+        # Clear from memory cache
+        was_locked = user_id in locked_conversations_cache
+        locked_conversations_cache.pop(user_id, None)
+
         print(f"\n{'='*70}")
         print(f"🔄 CONVERSATION RESET COMPLETE")
         print(f"   Customer: {user_id}")
         print(f"   Deleted checkpoints: {deleted_checkpoints}")
         print(f"   Deleted writes: {deleted_writes}")
-        print(f"   Was locked: {was_locked}")
-        print(f"   Bot will start fresh on next message")
         print(f"{'='*70}\n")
-        
+
         return {
             "status": "success",
             "message": f"Conversation reset for {user_id}. Bot will start fresh.",
@@ -174,75 +361,225 @@ async def reset_conversation(request: LockRequest):
             "deleted_writes": deleted_writes,
             "was_locked": was_locked
         }
-        
+
     except Exception as e:
         print(f"❌ Error resetting conversation: {e}")
         import traceback
         traceback.print_exc()
-        
-        return {
-            "status": "error",
-            "message": f"Failed to reset conversation: {str(e)}"
-        }
+        return {"status": "error", "message": f"Failed to reset: {str(e)}"}
+
 
 @app.get("/locked_conversations")
 async def get_locked_conversations():
-    """
-    Get list of all locked conversations
-    """
     return {
         "locked_conversations": [
             {
-                "user_id": user_id,
+                "user_id": uid,
                 "locked_at": info["locked_at"],
                 "locked_by": info["locked_by"],
                 "reason": info["reason"]
             }
-            for user_id, info in locked_conversations.items()
+            for uid, info in locked_conversations_cache.items()
         ],
-        "total_locked": len(locked_conversations)
+        "total_locked": len(locked_conversations_cache)
     }
+
+
+# ============================================================
+# LEADS ENDPOINT
+# ============================================================
+
+@app.post("/leads")
+async def get_leads(request: LeadsRequest):
+    """
+    Return leads for the last N days.
+    Called by Node when wife sends: Leads 7
+    """
+    try:
+        days = max(1, min(request.days, 365))  # Clamp between 1 and 365
+        since = datetime.now() - timedelta(days=days)
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT
+                        customer_number,
+                        quantity,
+                        budget_per_piece,
+                        location,
+                        timeline,
+                        status,
+                        last_message,
+                        created_at,
+                        updated_at
+                    FROM leads
+                    WHERE created_at >= %s
+                    ORDER BY updated_at DESC
+                """, (since,))
+
+                rows = cursor.fetchall()
+
+        if not rows:
+            return {
+                "status": "success",
+                "days": days,
+                "total": 0,
+                "leads": [],
+                "message": f"No leads in the last {days} day(s)"
+            }
+
+        leads = []
+        for row in rows:
+            customer_number, quantity, budget, location, timeline, status, last_msg, created_at, updated_at = row
+
+            # Format dates
+            created_str  = created_at.strftime("%d %b %H:%M")  if created_at  else "-"
+            updated_str  = updated_at.strftime("%d %b %H:%M")  if updated_at  else "-"
+
+            leads.append({
+                "customer_number": customer_number,
+                "quantity":        quantity,
+                "budget":          f"₹{budget}" if budget else None,
+                "location":        location,
+                "timeline":        timeline,
+                "status":          status,
+                "last_message":    last_msg,
+                "created_at":      created_str,
+                "updated_at":      updated_str
+            })
+
+        return {
+            "status": "success",
+            "days": days,
+            "total": len(leads),
+            "leads": leads
+        }
+
+    except Exception as e:
+        print(f"❌ Leads fetch failed: {e}")
+        return {"status": "error", "message": str(e), "leads": []}
+
+
+# ============================================================
+# LEAD INFO ENDPOINT
+# ============================================================
+
+@app.get("/lead_info/{customer_number}")
+async def get_lead_info(customer_number: str):
+    """
+    Return full details for a single customer.
+    Called by Node when wife sends: Info 919942463672
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT
+                        customer_number,
+                        quantity,
+                        budget_per_piece,
+                        location,
+                        timeline,
+                        status,
+                        last_message,
+                        created_at,
+                        updated_at
+                    FROM leads
+                    WHERE customer_number = %s
+                """, (customer_number,))
+                row = cursor.fetchone()
+
+        if not row:
+            return {
+                "status": "not_found",
+                "message": f"No lead found for {customer_number}"
+            }
+
+        customer_number, quantity, budget, location, timeline, status, last_msg, created_at, updated_at = row
+
+        return {
+            "status": "success",
+            "lead": {
+                "customer_number": customer_number,
+                "quantity":        quantity,
+                "budget":          f"₹{budget}" if budget else None,
+                "location":        location,
+                "timeline":        timeline,
+                "status":          status,
+                "last_message":    last_msg,
+                "created_at":      created_at.isoformat() if created_at else None,
+                "updated_at":      updated_at.isoformat() if updated_at else None
+            }
+        }
+
+    except Exception as e:
+        print(f"❌ Lead info fetch failed: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+# ============================================================
+# CHAT ENDPOINT
+# ============================================================
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
-    """Chat endpoint - checks if conversation is locked first"""
+    """Chat endpoint - checks lock, processes message, saves lead"""
     try:
         # ===== PRIORITY CHECK: Is conversation locked? =====
-        if request.user_id in locked_conversations:
-            lock_info = locked_conversations[request.user_id]
-            
+        lock_info = locked_conversations_cache.get(request.user_id)
+        if not lock_info:
+            # Fallback: check Supabase (catches restarts)
+            lock_info = is_conversation_locked(request.user_id)
+            if lock_info:
+                # Restore to cache
+                locked_conversations_cache[request.user_id] = lock_info
+
+        if lock_info:
             print(f"\n{'='*70}")
-            print(f"🔒 LOCKED CONVERSATION - BOT STAYING SILENT")
-            print(f"   Customer: {request.user_id}")
-            print(f"   Locked since: {lock_info['locked_at']}")
-            print(f"   Locked by: {lock_info['locked_by']}")
-            print(f"   Message received: \"{request.message}\"")
-            print(f"   Bot response: [SILENT]")
+            print(f"🔒 LOCKED - BOT SILENT for {request.user_id}")
             print(f"{'='*70}\n")
-            
+
             return {
                 "status": "locked",
                 "reply": None,
                 "needs_handoff": False,
                 "products": None,
                 "locked": True,
-                "locked_at": lock_info['locked_at'],
-                "locked_by": lock_info['locked_by']
+                "locked_at": lock_info["locked_at"],
+                "locked_by": lock_info["locked_by"]
             }
-        
-        # ===== Normal chat flow if not locked =====
+
+        # ===== Normal chat flow =====
         print(f"\n{'='*70}")
         print(f"💬 API Request from: {request.user_id}")
         print(f"📩 Message: {request.message}")
         print(f"{'='*70}")
-        
+
         response = bot.chat(request.user_id, request.message)
 
-        # ✅ ADD DEBUG LOGGING
         print(f"\n🔍 DEBUG: Bot response keys: {response.keys()}")
         print(f"🔍 DEBUG: requirements_summary = {response.get('requirements_summary', 'NOT FOUND')}")
         print(f"🔍 DEBUG: customer_requirements = {response.get('customer_requirements', 'NOT FOUND')}")
         print(f"🔍 DEBUG: handoff_reason = {response.get('handoff_reason', 'NOT FOUND')}")
+
+        # ===== SAVE LEAD if requirements exist =====
+        has_requirements = (
+            response.get("customer_requirements") and
+            any(v for v in response["customer_requirements"].values() if v is not None)
+        )
+
+        if has_requirements:
+            # Determine status
+            if response.get("reply") == "[SEND_PRODUCT_IMAGES_WITH_SUMMARY]":
+                lead_status = "products_shown"
+            elif response.get("needs_handoff"):
+                lead_status = "follow_up"
+            else:
+                lead_status = "requirements_collecting"
+
+            # Attach last_message for lead saving
+            response["last_message"] = request.message
+            save_or_update_lead(request.user_id, response, lead_status)
 
         return_data = {
             "status": "success",
@@ -261,12 +598,12 @@ async def chat(request: ChatRequest):
         print(f"🔍 DEBUG: Return data: {return_data}\n")
 
         return return_data
-        
+
     except Exception as e:
         print(f"❌ ERROR in chat endpoint: {e}")
         import traceback
         traceback.print_exc()
-        
+
         return {
             "status": "error",
             "reply": None,
@@ -277,67 +614,52 @@ async def chat(request: ChatRequest):
             "last_message": request.message
         }
 
+
+# ============================================================
+# HEALTH ENDPOINTS
+# ============================================================
+
 @app.get("/health")
 async def health():
-    """Quick health check (no DB query) - faster for simple pings"""
     return {
         "status": "healthy",
-        "version": "3.0",
-        "locked_conversations": len(locked_conversations),
+        "version": "4.0",
+        "locked_conversations": len(locked_conversations_cache),
         "timestamp": datetime.now().isoformat()
     }
 
+
 @app.get("/health-check")
-@app.head("/health-check") 
+@app.head("/health-check")
 async def health_check():
-    """
-    Enhanced health check with database connection test
-    Used by UptimeRobot to keep service awake
-    """
     try:
         db_url = os.getenv("SUPABASE_DB_URL")
-        
         if not db_url:
-            return {
-                "status": "unhealthy",
-                "error": "SUPABASE_DB_URL not configured",
-                "timestamp": datetime.now().isoformat()
-            }
-        
-        # Test database connection
-        conn = psycopg.connect(db_url)
-        cursor = conn.cursor()
-        
-        # Count checkpoints (shows bot is storing conversations)
-        cursor.execute("SELECT COUNT(*) FROM checkpoints")
-        checkpoint_count = cursor.fetchone()[0]
-        
-        cursor.close()
-        conn.close()
-        
+            return {"status": "unhealthy", "error": "SUPABASE_DB_URL not configured"}
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) FROM checkpoints")
+                checkpoint_count = cursor.fetchone()[0]
+
         return {
             "status": "healthy",
             "timestamp": datetime.now().isoformat(),
             "database_connected": True,
             "checkpoint_count": checkpoint_count,
-            "locked_conversations": len(locked_conversations),
+            "locked_conversations": len(locked_conversations_cache),
             "groq_api_configured": bool(os.getenv("GROQ_API_KEY"))
         }
-        
+
     except Exception as e:
         print(f"❌ Health check failed: {e}")
-        import traceback
-        traceback.print_exc()
-        
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }
+        return {"status": "unhealthy", "error": str(e)}
+
 
 if __name__ == "__main__":
     import uvicorn
-    print("🚀 Starting Complete Bot API v3.0...")
-    print("   • Conversation locking enabled")
-    print("   • Wife can take over anytime")
+    print("🚀 Starting Complete Bot API v4.0...")
+    print("   • Conversation locking (Supabase persistent) ✅")
+    print("   • Leads tracking ✅")
+    print("   • LEADS / INFO endpoints ✅")
     uvicorn.run(app, host="0.0.0.0", port=8000)

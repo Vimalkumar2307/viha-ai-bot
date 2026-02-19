@@ -297,6 +297,132 @@ async function handleIncomingMessage(message) {
                 return;
             }
 
+            // LOCK COMMAND
+            if (msgUpper.startsWith('LOCK ') || msgUpper.startsWith('/LOCK ')) {
+                console.log(`✅✅✅ LOCK COMMAND MATCHED!`);
+                
+                const customerNumber = msg.replace(/LOCK\s+/i, '').replace(/\/LOCK\s+/i, '').trim();
+                
+                try {
+                    await axios.post(
+                        `${process.env.LLM_API_URL}/lock_conversation`,
+                        { user_id: customerNumber },
+                        { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+                    );
+                    
+                    lockedConversationsCache.add(customerNumber);
+                    alertedCustomers.add(customerNumber);
+                    
+                    await sendTextMessage(jid,
+                        `🔒 Conversation locked!\n\n` +
+                        `Contact: +${customerNumber}\n` +
+                        `Bot will stay silent.\n\n` +
+                        `To re-enable: UNLOCK ${customerNumber}`
+                    );
+                    
+                    console.log(`✅ Locked for ${customerNumber}\n`);
+                    
+                } catch (error) {
+                    console.error(`❌ Lock failed:`, error.message);
+                    await sendTextMessage(jid, `❌ Lock failed: ${error.message}`);
+                }
+                return;
+            }
+
+            // LEADS COMMAND
+            if (msgUpper.startsWith('LEADS ') || msgUpper === 'LEADS') {
+                console.log(`✅✅✅ LEADS COMMAND MATCHED!`);
+                
+                // Extract days number (default 7)
+                const parts = msg.trim().split(/\s+/);
+                const days = parts[1] && !isNaN(parts[1]) ? parseInt(parts[1]) : 7;
+                
+                try {
+                    const response = await axios.post(
+                        `${process.env.LLM_API_URL}/leads`,
+                        { days: days },
+                        { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+                    );
+                    
+                    const data = response.data;
+                    
+                    if (data.total === 0) {
+                        await sendTextMessage(jid, `📋 No leads in the last ${days} day(s).`);
+                        return;
+                    }
+                    
+                    // Format leads message
+                    let leadsMsg = `📋 *Leads - Last ${days} day(s)*\n`;
+                    leadsMsg += `Total: ${data.total}\n`;
+                    leadsMsg += `━━━━━━━━━━━━━━━━━━\n\n`;
+                    
+                    data.leads.forEach((lead, index) => {
+                        leadsMsg += `${index + 1}. +${lead.customer_number}\n`;
+                        if (lead.quantity)  leadsMsg += `   Qty: ${lead.quantity} pcs\n`;
+                        if (lead.budget)    leadsMsg += `   Budget: ${lead.budget}/pc\n`;
+                        if (lead.location)  leadsMsg += `   Location: ${lead.location}\n`;
+                        if (lead.timeline)  leadsMsg += `   When: ${lead.timeline}\n`;
+                        leadsMsg += `   Status: ${lead.status}\n`;
+                        leadsMsg += `   Last active: ${lead.updated_at}\n\n`;
+                    });
+                    
+                    leadsMsg += `💡 INFO <number> for full details`;
+                    
+                    await sendTextMessage(jid, leadsMsg);
+                    console.log(`✅ Leads sent for last ${days} days\n`);
+                    
+                } catch (error) {
+                    console.error(`❌ Leads fetch failed:`, error.message);
+                    await sendTextMessage(jid, `❌ Failed to fetch leads: ${error.message}`);
+                }
+                return;
+            }
+
+            // INFO COMMAND
+            if (msgUpper.startsWith('INFO ') || msgUpper.startsWith('/INFO ')) {
+                console.log(`✅✅✅ INFO COMMAND MATCHED!`);
+                
+                const customerNumber = msg.replace(/INFO\s+/i, '').replace(/\/INFO\s+/i, '').trim();
+                
+                try {
+                    const response = await axios.get(
+                        `${process.env.LLM_API_URL}/lead_info/${customerNumber}`,
+                        { timeout: 10000 }
+                    );
+                    
+                    const data = response.data;
+                    
+                    if (data.status === 'not_found') {
+                        await sendTextMessage(jid, `❌ No lead found for +${customerNumber}`);
+                        return;
+                    }
+                    
+                    const lead = data.lead;
+                    
+                    let infoMsg = `📋 *Customer Info*\n\n`;
+                    infoMsg += `📱 +${lead.customer_number}\n\n`;
+                    infoMsg += `*Requirements:*\n`;
+                    infoMsg += lead.quantity  ? `Qty: ${lead.quantity} pcs\n`    : `Qty: Not provided\n`;
+                    infoMsg += lead.budget    ? `Budget: ${lead.budget}/pc\n`     : `Budget: Not provided\n`;
+                    infoMsg += lead.location  ? `Location: ${lead.location}\n`    : `Location: Not provided\n`;
+                    infoMsg += lead.timeline  ? `When: ${lead.timeline}\n`        : `When: Not provided\n`;
+                    infoMsg += `\n*Status:* ${lead.status}\n`;
+                    infoMsg += lead.last_message ? `*Last message:* "${lead.last_message}"\n` : '';
+                    infoMsg += `\n*First contact:* ${lead.created_at ? new Date(lead.created_at).toLocaleString('en-IN') : '-'}\n`;
+                    infoMsg += `*Last active:* ${lead.updated_at ? new Date(lead.updated_at).toLocaleString('en-IN') : '-'}\n`;
+                    infoMsg += `\n━━━━━━━━━━━━━━━━━━\n`;
+                    infoMsg += `RESET ${lead.customer_number}`;
+                    
+                    await sendTextMessage(jid, infoMsg);
+                    console.log(`✅ Info sent for ${customerNumber}\n`);
+                    
+                } catch (error) {
+                    console.error(`❌ Info fetch failed:`, error.message);
+                    await sendTextMessage(jid, `❌ Failed to fetch info: ${error.message}`);
+                }
+                return;
+            }
+
             // STATUS COMMAND
             if (msgUpper === 'STATUS' || msgUpper === '/STATUS') {
                 const uptime = Math.floor(process.uptime());
@@ -304,14 +430,26 @@ async function handleIncomingMessage(message) {
                 const minutes = Math.floor((uptime % 3600) / 60);
 
                 await sendTextMessage(jid,
-                    `📊 *Bot Status*\n\n` +
-                    `✅ WhatsApp: Connected\n` +
-                    `✅ Python: Healthy\n` +
-                    `⏱️ Uptime: ${hours}h ${minutes}m\n` +
-                    `🔒 Alerted: ${alertedCustomers.size}\n` +
-                    `📱 Wife LID: ${wifeLidJid || 'Not learned yet'}\n\n` +
-                    `Type HELP for commands`
-                );
+                `🤖 *Admin Commands*\n\n` +
+                `📝 *RESET <number>*\n` +
+                `   Reset customer conversation\n` +
+                `   Example: RESET 919942463672\n\n` +
+                `🔓 *UNLOCK <number>*\n` +
+                `   Unlock locked conversation\n` +
+                `   Example: UNLOCK 919942463672\n\n` +
+                `🔒 *LOCK <number>*\n` +
+                `   Silence bot for a contact\n` +
+                `   Example: LOCK 919942463672\n\n` +
+                `📋 *LEADS <days>*\n` +
+                `   Show leads for last N days\n` +
+                `   Example: LEADS 7\n\n` +
+                `🔍 *INFO <number>*\n` +
+                `   Show customer details\n` +
+                `   Example: INFO 919942463672\n\n` +
+                `📊 *STATUS*\n` +
+                `   Show bot status\n\n` +
+                `💡 Works: RESET, Reset, reset`
+            );
                 console.log(`✅ STATUS sent\n`);
                 return;
             }
@@ -326,9 +464,12 @@ async function handleIncomingMessage(message) {
                     `🔓 *UNLOCK <number>*\n` +
                     `   Unlock locked conversation\n` +
                     `   Example: UNLOCK 919942463672\n\n` +
+                    `🔒 *LOCK <number>*\n` +
+                    `   Silence bot for a contact\n` +
+                    `   Example: LOCK 919942463672\n\n` +
                     `📊 *STATUS*\n` +
                     `   Show bot status\n\n` +
-                    `💡 Works: RESET, Reset, reset`
+                    `💡 Works: RESET, Reset, reset`            
                 );
                 console.log(`✅ HELP sent\n`);
                 return;
@@ -539,6 +680,7 @@ async function lockConversation(customerNumber) {
             timeout: 10000,
             headers: { 'Content-Type': 'application/json' }
         });
+        lockedConversationsCache.add(customerNumber);
         console.log(`✅ Conversation permanently locked for ${customerNumber}`);
         return true;
     } catch (error) {
