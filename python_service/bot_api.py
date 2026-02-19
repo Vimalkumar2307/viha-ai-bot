@@ -648,6 +648,343 @@ async def get_summary(request: SummaryRequest):
         return {"status": "error", "message": str(e)}
 
 # ============================================================
+# PENDING ENDPOINT
+# ============================================================
+
+class PendingRequest(BaseModel):
+    start_date: str | None = None
+    end_date: str | None = None
+
+@app.post("/pending")
+async def get_pending(request: PendingRequest):
+    """
+    Return leads with incomplete requirements.
+    Default: today
+    """
+    try:
+        # Parse dates
+        if request.start_date:
+            start = datetime.strptime(request.start_date, "%Y-%m-%d")
+        else:
+            start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        if request.end_date:
+            end = datetime.strptime(request.end_date, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59
+            )
+        else:
+            end = datetime.now().replace(hour=23, minute=59, second=59)
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT
+                        customer_number,
+                        quantity,
+                        budget_per_piece,
+                        location,
+                        timeline,
+                        created_at,
+                        updated_at
+                    FROM leads
+                    WHERE status = 'requirements_collecting'
+                      AND created_at BETWEEN %s AND %s
+                    ORDER BY
+                        quantity DESC NULLS LAST
+                """, (start, end))
+                rows = cursor.fetchall()
+
+        if not rows:
+            return {
+                "status": "success",
+                "total": 0,
+                "leads": [],
+                "message": "No pending leads for this period"
+            }
+
+        leads = []
+        for row in rows:
+            customer_number, quantity, budget, location, timeline, created_at, updated_at = row
+
+            # Build missing fields list
+            missing = []
+            if not quantity:  missing.append("quantity")
+            if not budget:    missing.append("budget")
+            if not timeline:  missing.append("timeline")
+            if not location:  missing.append("location")
+
+            leads.append({
+                "customer_number": customer_number,
+                "quantity":        quantity,
+                "budget":          f"₹{int(budget)}" if budget else None,
+                "location":        location,
+                "timeline":        timeline,
+                "missing":         missing,
+                "created_at":      created_at.strftime("%d %b %H:%M") if created_at else "-",
+                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-"
+            })
+
+        return {
+            "status": "success",
+            "total": len(leads),
+            "leads": leads
+        }
+
+    except Exception as e:
+        print(f"❌ Pending fetch failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+
+# ============================================================
+# FOLLOWUP ENDPOINT
+# ============================================================
+
+class FollowupRequest(BaseModel):
+    start_date: str | None = None
+    end_date: str | None = None
+    silent_days: int = 1  # Default: silent for 1+ day
+
+@app.post("/followup")
+async def get_followup(request: FollowupRequest):
+    """
+    Return leads where products were shown but customer went silent.
+    Default: silent for 1+ day
+    """
+    try:
+        # Parse dates
+        if request.start_date:
+            start = datetime.strptime(request.start_date, "%Y-%m-%d")
+        else:
+            start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        if request.end_date:
+            end = datetime.strptime(request.end_date, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59
+            )
+        else:
+            end = datetime.now().replace(hour=23, minute=59, second=59)
+
+        silent_cutoff = datetime.now() - timedelta(days=request.silent_days)
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT
+                        customer_number,
+                        quantity,
+                        budget_per_piece,
+                        location,
+                        timeline,
+                        created_at,
+                        updated_at
+                    FROM leads
+                    WHERE status = 'products_shown'
+                      AND updated_at < %s
+                      AND created_at BETWEEN %s AND %s
+                    ORDER BY updated_at ASC
+                """, (silent_cutoff, start, end))
+                rows = cursor.fetchall()
+
+        if not rows:
+            return {
+                "status": "success",
+                "total": 0,
+                "leads": [],
+                "message": "No follow-up needed for this period"
+            }
+
+        leads = []
+        for row in rows:
+            customer_number, quantity, budget, location, timeline, created_at, updated_at = row
+
+            # Calculate how many days silent
+            silent_for = (datetime.now() - updated_at).days if updated_at else 0
+
+            leads.append({
+                "customer_number": customer_number,
+                "quantity":        quantity,
+                "budget":          f"₹{int(budget)}" if budget else None,
+                "location":        location,
+                "timeline":        timeline,
+                "silent_for":      silent_for,
+                "created_at":      created_at.strftime("%d %b %H:%M") if created_at else "-",
+                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-"
+            })
+
+        return {
+            "status":      "success",
+            "total":       len(leads),
+            "silent_days": request.silent_days,
+            "leads":       leads
+        }
+
+    except Exception as e:
+        print(f"❌ Followup fetch failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+
+# ============================================================
+# HOTLEADS ENDPOINT
+# ============================================================
+
+class HotleadsRequest(BaseModel):
+    start_date: str | None = None
+    end_date: str | None = None
+    min_quantity: int = 100  # Default: 100+ pieces
+
+@app.post("/hotleads")
+async def get_hotleads(request: HotleadsRequest):
+    """
+    Return high quantity leads.
+    Default: quantity >= 100, last 7 days
+    """
+    try:
+        # Parse dates
+        if request.start_date:
+            start = datetime.strptime(request.start_date, "%Y-%m-%d")
+        else:
+            # Default: last 7 days
+            start = (datetime.now() - timedelta(days=6)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+
+        if request.end_date:
+            end = datetime.strptime(request.end_date, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59
+            )
+        else:
+            end = datetime.now().replace(hour=23, minute=59, second=59)
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT
+                        customer_number,
+                        quantity,
+                        budget_per_piece,
+                        location,
+                        timeline,
+                        status,
+                        created_at,
+                        updated_at
+                    FROM leads
+                    WHERE quantity >= %s
+                      AND created_at BETWEEN %s AND %s
+                    ORDER BY quantity DESC
+                """, (request.min_quantity, start, end))
+                rows = cursor.fetchall()
+
+        if not rows:
+            return {
+                "status":       "success",
+                "total":        0,
+                "leads":        [],
+                "min_quantity": request.min_quantity,
+                "message":      f"No hot leads (≥{request.min_quantity} pcs) for this period"
+            }
+
+        leads = []
+        for row in rows:
+            customer_number, quantity, budget, location, timeline, status, created_at, updated_at = row
+
+            leads.append({
+                "customer_number": customer_number,
+                "quantity":        quantity,
+                "budget":          f"₹{int(budget)}" if budget else None,
+                "location":        location,
+                "timeline":        timeline,
+                "status":          status,
+                "created_at":      created_at.strftime("%d %b %H:%M") if created_at else "-",
+                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-"
+            })
+
+        return {
+            "status":       "success",
+            "total":        len(leads),
+            "min_quantity": request.min_quantity,
+            "leads":        leads
+        }
+
+    except Exception as e:
+        print(f"❌ Hotleads fetch failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
+
+# ============================================================
+# LOCKED ENDPOINT
+# ============================================================
+
+class LockedRequest(BaseModel):
+    start_date: str | None = None
+    end_date: str | None = None
+
+@app.post("/locked")
+async def get_locked(request: LockedRequest):
+    try:
+        # Parse dates - default last 30 days
+        if request.start_date:
+            start = datetime.strptime(request.start_date, "%Y-%m-%d")
+        else:
+            start = (datetime.now() - timedelta(days=29)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+
+        if request.end_date:
+            end = datetime.strptime(request.end_date, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59
+            )
+        else:
+            end = datetime.now().replace(hour=23, minute=59, second=59)
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT
+                        customer_number,
+                        quantity,
+                        budget_per_piece,
+                        location,
+                        updated_at
+                    FROM leads
+                    WHERE status = 'locked'
+                      AND updated_at BETWEEN %s AND %s
+                    ORDER BY updated_at DESC
+                """, (start, end))
+                rows = cursor.fetchall()
+
+        if not rows:
+            return {
+                "status":  "success",
+                "total":   0,
+                "leads":   [],
+                "message": "No locked conversations for this period"
+            }
+
+        leads = []
+        for row in rows:
+            customer_number, quantity, budget, location, updated_at = row
+            leads.append({
+                "customer_number": customer_number,
+                "quantity":        quantity,
+                "budget":          f"₹{int(budget)}" if budget else None,
+                "location":        location,
+                "locked_at":       updated_at.strftime("%d %b %H:%M") if updated_at else "-"
+            })
+
+        return {
+            "status": "success",
+            "total":  len(leads),
+            "leads":  leads
+        }
+
+    except Exception as e:
+        print(f"❌ Locked fetch failed: {e}")
+        return {"status": "error", "message": str(e)}
+
+# ============================================================
 # CHAT ENDPOINT
 # ============================================================
 

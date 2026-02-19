@@ -224,6 +224,19 @@ function parseDateRange(parts) {
         };
     }
 
+    // Single date → that day only
+    if (parts.length === 2 && parts[1].includes('/')) {
+        const date = parseDate(parts[1]);
+        if (date && !isNaN(date)) {
+            return {
+                start_date: formatDate(date),
+                end_date:   formatDate(date),
+                label:      parts[1]
+            };
+        }
+        return { error: `❌ Invalid date format.\n\nCorrect formats:\nSUMMARY 19/02 → single day\nSUMMARY 12/02 19/02 → date range\nSUMMARY 7 → last 7 days` };
+    }
+
     // Two dates → date range
     // Two dates → date range
     if (parts.length === 3) {
@@ -526,6 +539,306 @@ async function handleIncomingMessage(message) {
                 return;
             }
 
+            // PENDING COMMAND
+            if (msgUpper.startsWith('PENDING') || msgUpper === 'PENDING') {
+                console.log(`✅✅✅ PENDING COMMAND MATCHED!`);
+
+                const parts = msg.trim().split(/\s+/);
+                const dateRange = parseDateRange(parts);
+
+                if (dateRange.error) {
+                    await sendTextMessage(jid, dateRange.error);
+                    return;
+                }
+
+                const { start_date, end_date, label } = dateRange;
+
+                try {
+                    const response = await axios.post(
+                        `${process.env.LLM_API_URL}/pending`,
+                        { start_date, end_date },
+                        { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+                    );
+
+                    const d = response.data;
+
+                    if (d.status === 'error') {
+                        await sendTextMessage(jid, `❌ Pending fetch failed: ${d.message}`);
+                        return;
+                    }
+
+                    if (d.total === 0) {
+                        await sendTextMessage(jid,
+                            `⏳ No pending leads for ${label}.`
+                        );
+                        return;
+                    }
+
+                    let pendingMsg = `⏳ *Pending - ${label}*\n`;
+                    pendingMsg += `Total: ${d.total}\n`;
+                    pendingMsg += `━━━━━━━━━━━━━━━━━━\n\n`;
+
+                    d.leads.forEach((lead, index) => {
+                        const qty      = lead.quantity ? `${lead.quantity} pcs` : 'Qty ?';
+                        const budget   = lead.budget   ? `${lead.budget}/pc`    : 'Budget ?';
+                        const when     = lead.timeline || 'Date ?';
+                        const location = lead.location || 'Location ?';
+                        const missing  = lead.missing.length > 0
+                            ? `Missing: ${lead.missing.join(', ')}`
+                            : 'All details collected';
+
+                        pendingMsg += `${index + 1}. +${lead.customer_number}\n`;
+                        pendingMsg += `   ${qty} | ${budget} | ${when} | ${location}\n`;
+                        pendingMsg += `   ⚠️ ${missing}\n\n`;
+                    });
+
+                    pendingMsg += `━━━━━━━━━━━━━━━━━━\n`;
+                    pendingMsg += `💡 RESET <number> to restart conversation`;
+
+                    await sendTextMessage(jid, pendingMsg);
+                    console.log(`✅ Pending sent for ${label}\n`);
+
+                } catch (error) {
+                    console.error(`❌ Pending fetch failed:`, error.message);
+                    await sendTextMessage(jid, `❌ Failed to fetch pending: ${error.message}`);
+                }
+                return;
+            }
+
+            // FOLLOWUP COMMAND
+            if (msgUpper.startsWith('FOLLOWUP') || msgUpper === 'FOLLOWUP') {
+                console.log(`✅✅✅ FOLLOWUP COMMAND MATCHED!`);
+
+                const parts = msg.trim().split(/\s+/);
+
+                // Check if second argument is silent_days (single number)
+                // FOLLOWUP 2 → silent for 2+ days (no date filter)
+                let silent_days = 1;
+                let dateRange;
+
+                if (parts.length === 2 && !isNaN(parts[1]) && !parts[1].includes('/')) {
+                    // FOLLOWUP 2 → last N silent days, today's date range
+                    silent_days = parseInt(parts[1]);
+                    dateRange = parseDateRange([parts[0]]); // today
+                } else {
+                    // FOLLOWUP / FOLLOWUP 19/02 / FOLLOWUP 12/02 19/02
+                    dateRange = parseDateRange(parts);
+                }
+
+                if (dateRange.error) {
+                    await sendTextMessage(jid, dateRange.error);
+                    return;
+                }
+
+                const { start_date, end_date, label } = dateRange;
+
+                try {
+                    const response = await axios.post(
+                        `${process.env.LLM_API_URL}/followup`,
+                        { start_date, end_date, silent_days },
+                        { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+                    );
+
+                    const d = response.data;
+
+                    if (d.status === 'error') {
+                        await sendTextMessage(jid, `❌ Followup fetch failed: ${d.message}`);
+                        return;
+                    }
+
+                    if (d.total === 0) {
+                        await sendTextMessage(jid,
+                            `✅ No follow-ups needed for ${label}.`
+                        );
+                        return;
+                    }
+
+                    let followupMsg = `⚠️ *Follow-up Needed - ${label}*\n`;
+                    followupMsg += `Total: ${d.total}\n`;
+                    followupMsg += `━━━━━━━━━━━━━━━━━━\n\n`;
+
+                    d.leads.forEach((lead, index) => {
+                        const qty      = lead.quantity ? `${lead.quantity} pcs`  : 'Qty ?';
+                        const budget   = lead.budget   ? `${lead.budget}/pc`     : 'Budget ?';
+                        const when     = lead.timeline || 'Date ?';
+                        const location = lead.location || 'Location ?';
+                        const silent   = lead.silent_for === 0
+                            ? 'today'
+                            : lead.silent_for === 1
+                                ? '1 day ago'
+                                : `${lead.silent_for} days ago`;
+
+                        followupMsg += `${index + 1}. +${lead.customer_number}\n`;
+                        followupMsg += `   ${qty} | ${budget} | ${when} | ${location}\n`;
+                        followupMsg += `   🔕 Silent for: ${silent}\n\n`;
+                    });
+
+                    followupMsg += `━━━━━━━━━━━━━━━━━━\n`;
+                    followupMsg += `💡 LOCK <number> to silence bot\n`;
+                    followupMsg += `💡 RESET <number> to restart conversation`;
+
+                    await sendTextMessage(jid, followupMsg);
+                    console.log(`✅ Followup sent for ${label}\n`);
+
+                } catch (error) {
+                    console.error(`❌ Followup fetch failed:`, error.message);
+                    await sendTextMessage(jid, `❌ Failed to fetch followup: ${error.message}`);
+                }
+                return;
+            }
+
+            // HOTLEADS COMMAND
+            if (msgUpper.startsWith('HOTLEADS') || msgUpper === 'HOTLEADS') {
+                console.log(`✅✅✅ HOTLEADS COMMAND MATCHED!`);
+
+                const parts = msg.trim().split(/\s+/);
+
+                // Parse min_quantity and date range
+                // HOTLEADS              → qty≥100, last 7 days
+                // HOTLEADS 50           → qty≥50,  last 7 days
+                // HOTLEADS 50 7         → qty≥50,  last 7 days
+                // HOTLEADS 50 19/02     → qty≥50,  single day
+                // HOTLEADS 50 12/02 19/02 → qty≥50, date range
+
+                let min_quantity = 100;
+                let dateRangeParts = [parts[0]]; // default → no date args
+
+                if (parts.length >= 2 && !isNaN(parts[1]) && !parts[1].includes('/')) {
+                    // Second arg is quantity threshold
+                    min_quantity = parseInt(parts[1]);
+
+                    if (parts.length >= 3) {
+                        // Remaining args are date range
+                        dateRangeParts = [parts[0], ...parts.slice(2)];
+                    }
+                    // else: no date args → default last 7 days
+                } else if (parts.length >= 2) {
+                    // No quantity arg, date args start from index 1
+                    dateRangeParts = parts;
+                }
+
+                const dateRange = parseDateRange(dateRangeParts);
+
+                if (dateRange.error) {
+                    await sendTextMessage(jid, dateRange.error);
+                    return;
+                }
+
+                const { start_date, end_date, label } = dateRange;
+
+                try {
+                    const response = await axios.post(
+                        `${process.env.LLM_API_URL}/hotleads`,
+                        { start_date, end_date, min_quantity },
+                        { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+                    );
+
+                    const d = response.data;
+
+                    if (d.status === 'error') {
+                        await sendTextMessage(jid, `❌ Hotleads fetch failed: ${d.message}`);
+                        return;
+                    }
+
+                    if (d.total === 0) {
+                        await sendTextMessage(jid,
+                            `🔥 No hot leads (≥${min_quantity} pcs) for ${label}.`
+                        );
+                        return;
+                    }
+
+                    let hotMsg = `🔥 *Hot Leads - ${label} (≥${min_quantity} pcs)*\n`;
+                    hotMsg += `Total: ${d.total}\n`;
+                    hotMsg += `━━━━━━━━━━━━━━━━━━\n\n`;
+
+                    d.leads.forEach((lead, index) => {
+                        const qty      = lead.quantity ? `${lead.quantity} pcs` : 'Qty ?';
+                        const budget   = lead.budget   ? `${lead.budget}/pc`    : 'Budget ?';
+                        const when     = lead.timeline || 'Date ?';
+                        const location = lead.location || 'Location ?';
+
+                        hotMsg += `${index + 1}. +${lead.customer_number}\n`;
+                        hotMsg += `   ${qty} | ${budget} | ${when} | ${location}\n`;
+                        hotMsg += `   Status: ${lead.status}\n\n`;
+                    });
+
+                    hotMsg += `━━━━━━━━━━━━━━━━━━\n`;
+                    hotMsg += `💡 INFO <number> for full details\n`;
+                    hotMsg += `💡 LOCK <number> to silence bot`;
+
+                    await sendTextMessage(jid, hotMsg);
+                    console.log(`✅ Hotleads sent for ${label}, min qty: ${min_quantity}\n`);
+
+                } catch (error) {
+                    console.error(`❌ Hotleads fetch failed:`, error.message);
+                    await sendTextMessage(jid, `❌ Failed to fetch hotleads: ${error.message}`);
+                }
+                return;
+            }
+
+            // LOCKED COMMAND
+            if (msgUpper.startsWith('LOCKED') || msgUpper === 'LOCKED') {
+                console.log(`✅✅✅ LOCKED COMMAND MATCHED!`);
+
+                const parts = msg.trim().split(/\s+/);
+                const dateRange = parseDateRange(parts);
+
+                if (dateRange.error) {
+                    await sendTextMessage(jid, dateRange.error);
+                    return;
+                }
+
+                const { start_date, end_date, label } = dateRange;
+
+                try {
+                    const response = await axios.post(
+                        `${process.env.LLM_API_URL}/locked`,
+                        { start_date, end_date },
+                        { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+                    );
+
+                    const d = response.data;
+
+                    if (d.status === 'error') {
+                        await sendTextMessage(jid, `❌ Failed: ${d.message}`);
+                        return;
+                    }
+
+                    if (d.total === 0) {
+                        await sendTextMessage(jid,
+                            `🔓 No locked conversations for ${label}.`
+                        );
+                        return;
+                    }
+
+                    let lockedMsg = `🔒 *Locked Conversations - ${label}*\n`;
+                    lockedMsg += `Total: ${d.total}\n`;
+                    lockedMsg += `━━━━━━━━━━━━━━━━━━\n\n`;
+
+                    d.leads.forEach((lead, index) => {
+                        const qty      = lead.quantity ? `${lead.quantity} pcs` : 'Qty ?';
+                        const budget   = lead.budget   ? `${lead.budget}/pc`    : 'Budget ?';
+                        const location = lead.location || 'Location ?';
+
+                        lockedMsg += `${index + 1}. +${lead.customer_number}\n`;
+                        lockedMsg += `   ${qty} | ${budget} | ${location}\n`;
+                        lockedMsg += `   Locked at: ${lead.locked_at}\n\n`;
+                    });
+
+                    lockedMsg += `━━━━━━━━━━━━━━━━━━\n`;
+                    lockedMsg += `💡 UNLOCK <number> to re-enable bot\n`;
+                    lockedMsg += `💡 RESET <number> to clear conversation`;
+
+                    await sendTextMessage(jid, lockedMsg);
+                    console.log(`✅ Locked list sent for ${label}\n`);
+
+                } catch (error) {
+                    console.error(`❌ Locked fetch failed:`, error.message);
+                    await sendTextMessage(jid, `❌ Failed to fetch locked list: ${error.message}`);
+                }
+                return;
+            }
+
             // INFO COMMAND
             if (msgUpper.startsWith('INFO ') || msgUpper.startsWith('/INFO ')) {
                 console.log(`✅✅✅ INFO COMMAND MATCHED!`);
@@ -594,12 +907,24 @@ async function handleIncomingMessage(message) {
                 `📊 *SUMMARY <days or date range>*\n` +
                 `   Business overview\n` +
                 `   Example: SUMMARY / SUMMARY 7 / SUMMARY 12/02 19/02\n\n` +
+                `⏳ *PENDING <days or date range>*\n` +
+                `   Incomplete conversations\n` +
+                `   Example: PENDING / PENDING 7 / PENDING 12/02 19/02\n\n` +
+                `⚠️ *FOLLOWUP <days or date range>*\n` +
+                `   Leads silent after seeing products\n` +
+                `   Example: FOLLOWUP / FOLLOWUP 2 / FOLLOWUP 12/02 19/02\n\n` +
+                `🔥 *HOTLEADS <min_qty> <days or date range>*\n` +
+                `   High quantity leads\n` +
+                `   Example: HOTLEADS / HOTLEADS 50 / HOTLEADS 50 12/02 19/02\n\n` +
+                `🔒 *LOCKED <days or date range>*\n` +
+                `   Show locked conversations\n` +
+                `   Example: LOCKED / LOCKED 7 / LOCKED 12/02 19/02\n\n` +
                 `🔍 *INFO <number>*\n` +
-                `   Show customer details\n` +
+                `   Show customer details\n` +  
                 `   Example: INFO 919942463672\n\n` +
                 `📊 *STATUS*\n` +
                 `   Show bot status\n\n` +
-                `💡 Works: RESET, Reset, reset`
+                `💡 All commands work in any case: RESET, Reset, reset`
             );
                 console.log(`✅ STATUS sent\n`);
                 return;
