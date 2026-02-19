@@ -86,13 +86,11 @@ async function sendTextMessage(jid, text) {
  */
 async function sendImageMessage(jid, imageUrl, caption) {
     try {
-        // Validate image URL
         if (!imageUrl || imageUrl.trim() === '') {
             console.log('⚠️ No image URL provided, sending text only');
             return await sendTextMessage(jid, caption);
         }
         
-        // Try sending image
         console.log(`📸 Attempting to send image: ${imageUrl.substring(0, 50)}...`);
         
         await sock.sendMessage(jid, {
@@ -105,47 +103,33 @@ async function sendImageMessage(jid, imageUrl, caption) {
         
     } catch (error) {
         console.error('❌ Error sending image:', error.message);
-        
-        // FALLBACK: Send text-only message with product details
         const fallbackMsg = `${caption}\n\n(Image temporarily unavailable)`;
         console.log('⚠️ Falling back to text-only message');
-        
         return await sendTextMessage(jid, fallbackMsg);
     }
 }
 
 /**
- * ENHANCED: Send product images with retry logic
- */
-/**
- * Send multiple product images - NO selection prompt (wife takes over)
- */
-/**
- * ✅ NEW: Send requirements summary, then products, then closing message
+ * Send requirements summary, then products, then closing message
  */
 async function sendProductImages(jid, products, requirementsSummary) {
     try {
         console.log(`📸 Sending requirements summary + ${products.length} product images...`);
         
-        // ✅ STEP 1: Send requirements summary with "Here are X options"
         if (requirementsSummary) {
             await sendTextMessage(jid, requirementsSummary);
             await sleep(1000);
         }
         
-        // ✅ STEP 2: Send all product images
         for (let i = 0; i < products.length; i++) {
             const product = products[i];
             const caption = `${i + 1}. ${product.name}\n₹${product.price}/piece`;
-            
             await sendImageMessage(jid, product.image_url, caption);
-            
             if (i < products.length - 1) {
                 await sleep(800);
             }
         }
         
-        // ✅ STEP 3: Send closing message after all images
         await sleep(1000);
         const closingMessage = "Please let us know which one you are interested. We can proceed further.";
         await sendTextMessage(jid, closingMessage);
@@ -159,22 +143,18 @@ async function sendProductImages(jid, products, requirementsSummary) {
         return false;
     }
 }
+
 /**
- * Send alert to wife with customer details
- */
-/**
- * ✅ NEW: Send detailed alert to wife with customer requirements and handoff reason
+ * Send detailed alert to wife with customer requirements and handoff reason
  */
 async function alertWife(customerNumber, llmResponse, reason = 'NEEDS_HELP') {
     try {
         let alertMessage = '';
         
-        // ✅ NEW: Build detailed alert with customer requirements
         if (reason === 'NEEDS_HELP' || reason === 'PRODUCTS_SHOWN') {
             alertMessage = `🔔 *CUSTOMER NEEDS HELP*\n\n`;
             alertMessage += `Customer: +${customerNumber}\n\n`;
             
-            // ✅ Add customer requirements if available
             if (llmResponse.customer_requirements) {
                 const req = llmResponse.customer_requirements;
                 alertMessage += `📋 *Customer Requirements:*\n`;
@@ -185,21 +165,17 @@ async function alertWife(customerNumber, llmResponse, reason = 'NEEDS_HELP') {
                 alertMessage += `\n`;
             }
             
-            // ✅ Add handoff reason
             if (llmResponse.handoff_reason) {
                 alertMessage += `${llmResponse.handoff_reason}\n\n`;
             }
             
             alertMessage += `Please follow up with this customer.\n\n`;
-            
-            // ✅ ADD THIS: Include reset command
             alertMessage += `━━━━━━━━━━━━━━━━━━\n`;
             alertMessage += `💡 *Quick Actions:*\n`;
             alertMessage += `\n💡 *To reset this chat, reply:*\n`;
             alertMessage += `RESET ${customerNumber}\n\n`;
             alertMessage += `*To unlock chat, reply:*\n`;
             alertMessage += `UNLOCK ${customerNumber}`;
-            
             alertMessage += `\nThank you! 🙏`;
             
         } else if (reason === 'BOT_ERROR') {
@@ -221,7 +197,6 @@ async function alertWife(customerNumber, llmResponse, reason = 'NEEDS_HELP') {
         console.log('✅ Alert sent to wife with customer requirements and handoff reason');
         console.log(`📋 Customer: +${customerNumber}`);
         console.log(`⏸️  Bot will stay silent for this customer\n`);
-        
         return true;
         
     } catch (error) {
@@ -229,28 +204,18 @@ async function alertWife(customerNumber, llmResponse, reason = 'NEEDS_HELP') {
         return false;
     }
 }
-/**
- * Track which customers have already been alerted about
- * This prevents spamming wife with multiple alerts
- */
+
+// Track alerted customers to prevent spam
 const alertedCustomers = new Set();
 
-// ✅ NEW: Track locked conversations in this session (prevent spam)
+// Track locked conversations in this session
 const lockedConversationsCache = new Set();
-/**
- * Handle incoming WhatsApp messages - FIXED alert spam
- */
-// ===== SMART MESSAGE BATCHING SYSTEM =====
 
 // Store pending messages for each user
-const userMessageQueues = new Map(); // userId -> {messages: [], timeoutId: number, jid: string}
+const userMessageQueues = new Map();
 
 /**
- * Smart message accumulation
- * Keeps waiting as long as customer sends messages within 5 seconds
- */
-/**
- * Handle incoming WhatsApp messages - ENHANCED with dynamic timeout
+ * Handle incoming WhatsApp messages
  */
 async function handleIncomingMessage(message) {
     try {
@@ -265,6 +230,7 @@ async function handleIncomingMessage(message) {
         console.log(`   WIFE_NUMBER: "${process.env.WIFE_NUMBER}"`);
         console.log(`   WIFE_NUMBER length: ${process.env.WIFE_NUMBER ? process.env.WIFE_NUMBER.length : 0}`);
         console.log(`   JID === WIFE_NUMBER: ${jid === process.env.WIFE_NUMBER}`);
+        console.log(`   isAdminMessage: ${isAdminMessage(jid)}`);
         console.log(`   !isFromMe: ${!isFromMe}`);
         console.log(`${'='.repeat(70)}\n`);
 
@@ -274,19 +240,20 @@ async function handleIncomingMessage(message) {
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // ✅ ADMIN COMMANDS
+        // ADMIN COMMANDS
         // ═══════════════════════════════════════════════════════════════
 
         const ADMIN_NUMBER = process.env.WIFE_NUMBER;
 
         if (isAdminMessage(jid) && !isFromMe) {
+            // Learn wife's LID JID if not known yet
             if (jid.includes('@lid') && !wifeLidJid) {
                 wifeLidJid = jid;
                 console.log(`✅ Learned wife's LID JID: ${wifeLidJid}`);
             }
+
             console.log(`✅ MESSAGE FROM WIFE DETECTED`);
             
-            // Extract message text
             let messageText = '';
             if (message.message?.conversation) {
                 messageText = message.message.conversation;
@@ -301,9 +268,7 @@ async function handleIncomingMessage(message) {
             console.log(`   Uppercase: "${msgUpper}"`);
             console.log(`   Checking commands...`);
             
-            // ──────────────────────────────────────────────────────────
             // RESET COMMAND
-            // ──────────────────────────────────────────────────────────
             if (msgUpper.startsWith('RESET ') || msgUpper.startsWith('/RESET ')) {
                 console.log(`✅✅✅ RESET COMMAND MATCHED!`);
                 
@@ -323,7 +288,7 @@ async function handleIncomingMessage(message) {
                     );
                     
                     alertedCustomers.delete(customerNumber);
-                    lockedConversationsCache.delete(customerNumber); // ✅ CLEAR LOCK CACHE
+                    lockedConversationsCache.delete(customerNumber);
                     
                     await sendTextMessage(jid, 
                         `✅ Conversation reset successful!\n\n` +
@@ -339,12 +304,10 @@ async function handleIncomingMessage(message) {
                     await sendTextMessage(jid, `❌ Reset failed: ${error.message}`);
                 }
                 
-                return; // ✅ EXIT IMMEDIATELY
+                return;
             }
             
-            // ──────────────────────────────────────────────────────────
             // UNLOCK COMMAND
-            // ──────────────────────────────────────────────────────────
             if (msgUpper.startsWith('UNLOCK ') || msgUpper.startsWith('/UNLOCK ')) {
                 console.log(`✅✅✅ UNLOCK COMMAND MATCHED!`);
                 
@@ -363,7 +326,7 @@ async function handleIncomingMessage(message) {
                     );
                     
                     alertedCustomers.delete(customerNumber);
-                    lockedConversationsCache.delete(customerNumber); // ✅ CLEAR LOCK CACHE
+                    lockedConversationsCache.delete(customerNumber);
                     
                     await sendTextMessage(jid, 
                         `✅ Conversation unlocked!\n\n` +
@@ -378,12 +341,10 @@ async function handleIncomingMessage(message) {
                     await sendTextMessage(jid, `❌ Unlock failed: ${error.message}`);
                 }
                 
-                return; // ✅ EXIT IMMEDIATELY
+                return;
             }
             
-            // ──────────────────────────────────────────────────────────
             // STATUS COMMAND
-            // ──────────────────────────────────────────────────────────
             if (msgUpper === 'STATUS' || msgUpper === '/STATUS') {
                 console.log(`✅✅✅ STATUS COMMAND MATCHED!`);
                 
@@ -401,12 +362,10 @@ async function handleIncomingMessage(message) {
                 );
                 
                 console.log(`✅ STATUS sent\n`);
-                return; // ✅ EXIT IMMEDIATELY
+                return;
             }
             
-            // ──────────────────────────────────────────────────────────
             // HELP COMMAND
-            // ──────────────────────────────────────────────────────────
             if (msgUpper === 'HELP' || msgUpper === '/HELP' || msgUpper === 'COMMANDS') {
                 console.log(`✅✅✅ HELP COMMAND MATCHED!`);
                 
@@ -424,22 +383,22 @@ async function handleIncomingMessage(message) {
                 );
                 
                 console.log(`✅ HELP sent\n`);
-                return; // ✅ EXIT IMMEDIATELY
+                return;
             }
             
-            // ✅ If we reach here, no command matched
+            // No command matched
             console.log(`⚠️⚠️⚠️ NO ADMIN COMMAND MATCHED!`);
             console.log(`   Message: "${msg}"`);
             console.log(`   This will be treated as customer message`);
             console.log(`   This is why bot sends greeting!\n`);
-            // Don't return - let it fall through
+            return; // ✅ RETURN - don't process wife's unmatched messages as customer
         }
 
         // ═══════════════════════════════════════════════════════════════
         // END ADMIN COMMANDS
         // ═══════════════════════════════════════════════════════════════
         
-        // ===== If WIFE sends message, LOCK conversation =====
+        // If WIFE sends message to customer, LOCK that conversation
         if (isFromMe) {
             const customerNumber = jid.split('@')[0];
             
@@ -448,7 +407,6 @@ async function handleIncomingMessage(message) {
                 return;
             }
             
-            // ✅ FIX: Check if already locked in this session
             if (lockedConversationsCache.has(customerNumber)) {
                 console.log(`🔕 Already locked ${customerNumber} in this session, skipping`);
                 return;
@@ -458,11 +416,7 @@ async function handleIncomingMessage(message) {
             console.log(`   Customer: ${customerNumber}`);
             
             await lockConversation(customerNumber);
-            
-            // ✅ Add to cache to prevent duplicate locks
             lockedConversationsCache.add(customerNumber);
-            
-            // Remove from alerted set (wife is now handling)
             alertedCustomers.delete(customerNumber);
             
             console.log(`✅ Bot will NEVER respond to this customer again`);
@@ -471,7 +425,7 @@ async function handleIncomingMessage(message) {
             return;
         }
         
-        // ===== MINIMAL IMAGE HANDLING - Just tag it for Python =====
+        // Extract message text
         let messageText = '';
         
         if (message.message.imageMessage) {
@@ -481,12 +435,10 @@ async function handleIncomingMessage(message) {
             console.log(`\n📸 IMAGE DETECTED from ${userId}`);
             console.log(`   Caption: "${caption}"`);
             
-            // Format for Python to understand (let Python decide what to do)
             messageText = `[IMAGE_SENT]${caption ? ': ' + caption : ''}`;
             console.log(`   📦 Forwarding to Python: "${messageText}"`);
             
         } else {
-            // Normal text extraction
             if (message.message.conversation) {
                 messageText = message.message.conversation;
             } else if (message.message.extendedTextMessage) {
@@ -494,7 +446,6 @@ async function handleIncomingMessage(message) {
             }
         }
         
-        // Skip empty messages
         if (!messageText || messageText.trim() === '') {
             console.log('⚠️  Empty message, skipping');
             return;
@@ -505,13 +456,7 @@ async function handleIncomingMessage(message) {
         console.log(`\n📨 From: ${userId}`);
         console.log(`💬 Message: ${messageText}`);
         
-        // ===== REMOVED: All "pp" detection logic =====
-        // ===== REMOVED: All image-specific alerts =====
-        // Python will handle all business logic
-        
-        // ===== SMART MESSAGE BATCHING WITH DYNAMIC TIMEOUT =====
-        
-        // Get or create message queue for this user
+        // SMART MESSAGE BATCHING WITH DYNAMIC TIMEOUT
         if (!userMessageQueues.has(userId)) {
             userMessageQueues.set(userId, {
                 messages: [],
@@ -522,35 +467,27 @@ async function handleIncomingMessage(message) {
         }
         
         const queue = userMessageQueues.get(userId);
-        
-        // Add current message to queue
         queue.messages.push(messageText);
         
-        // Determine timeout based on conversation state
         let timeoutDuration;
         
         if (queue.isFirstMessage) {
-            // First message: Wait 60 seconds (1 minute)
             timeoutDuration = 60000;
             console.log('⏰ First message detected - waiting 60 seconds for full requirements...');
         } else {
-            // Subsequent messages: Wait 10 seconds
             timeoutDuration = 10000;
             console.log('🔄 Message added to batch, resetting 10-second timer...');
         }
         
-        // Clear previous timeout (if any)
         if (queue.timeoutId) {
             clearTimeout(queue.timeoutId);
         }
         
-        // Set new timeout with dynamic duration
         queue.timeoutId = setTimeout(async () => {
             const messageCount = queue.messages.length;
             console.log(`⏱️  Processed after ${timeoutDuration/1000}s - ${messageCount} messages combined`);
             console.log(`\n✅ Customer stopped typing, processing ${messageCount} message(s)`);
             
-            // Combine all messages
             const combinedMessage = queue.messages.join('\n');
             
             console.log(`📋 Combined message:`);
@@ -560,17 +497,14 @@ async function handleIncomingMessage(message) {
                 console.log(`   ${combinedMessage}`);
             }
             
-            // Clear queue
             queue.messages = [];
             queue.timeoutId = null;
             
-            // After processing first message, mark as no longer first
             if (queue.isFirstMessage) {
                 queue.isFirstMessage = false;
                 console.log('✅ First message processed - switching to 10-second timeout for subsequent messages');
             }
             
-            // Forward to Python - it handles EVERYTHING
             await processMessageWithLLM(jid, combinedMessage, userId);
             
         }, timeoutDuration);
@@ -581,18 +515,16 @@ async function handleIncomingMessage(message) {
 }
 
 /**
- * Process message with LLM (separated for clarity)
+ * Process message with LLM
  */
 async function processMessageWithLLM(jid, messageText, userId) {
     try {
-        // Check if LLM is enabled
         if (!USE_LLM) {
             await sendTextMessage(jid, "Our team will contact you shortly. 😊");
             console.log('⚠️  LLM disabled, sent maintenance message');
             return;
         }
         
-        // Get LLM response
         const llmResponse = await chatWithLLM(messageText, userId);
         
         if (!llmResponse) {
@@ -611,14 +543,14 @@ async function processMessageWithLLM(jid, messageText, userId) {
             return;
         }
         
-        // ===== Check if conversation is LOCKED =====
+        // Check if conversation is LOCKED
         if (llmResponse.locked) {
             console.log('🔒 Conversation is LOCKED by wife');
             console.log('🤐 Bot staying SILENT - wife is handling this customer\n');
             return;
         }
 
-        // ===== Priority 1: Product Images with Summary =====
+        // Priority 1: Product Images with Summary
         if (llmResponse.reply === "[SEND_PRODUCT_IMAGES_WITH_SUMMARY]") {
             console.log('🎯 Product image marker with summary detected!');
             console.log('🔍 DEBUG: Full llmResponse:', JSON.stringify(llmResponse, null, 2));
@@ -626,15 +558,10 @@ async function processMessageWithLLM(jid, messageText, userId) {
             if (llmResponse.products && llmResponse.products.length > 0) {
                 const requirementsSummary = llmResponse.requirements_summary || "";
                 console.log(`📸 Sending requirements summary + ${llmResponse.products.length} product images`);
-                // console.log('🔍 DEBUG: Requirements summary:', requirementsSummary);
-                // console.log('🔍 DEBUG: Customer requirements:', llmResponse.customer_requirements);
-                // console.log('🔍 DEBUG: Handoff reason:', llmResponse.handoff_reason);
                 
-                // ✅ NEW: Pass requirements summary to sendProductImages
                 await sendProductImages(jid, llmResponse.products, requirementsSummary);
                 console.log('✅ All images sent with summary and closing message\n');
                 
-                // ✅ NEW: Alert wife with detailed customer requirements
                 const customerNumber = jid.split('@')[0];
                 if (!alertedCustomers.has(customerNumber)) {
                     console.log('🔍 DEBUG: About to call alertWife with:', {
@@ -653,7 +580,7 @@ async function processMessageWithLLM(jid, messageText, userId) {
             return;
         }
         
-        // ===== Priority 2: Handoff =====
+        // Priority 2: Handoff
         if (llmResponse.needs_handoff) {
             console.log('🚨 HUMAN HANDOFF TRIGGERED');
             
@@ -668,7 +595,6 @@ async function processMessageWithLLM(jid, messageText, userId) {
             
             const customerNumber = userId;
             if (!alertedCustomers.has(customerNumber)) {
-                // ✅ NEW: Pass entire llmResponse to get customer_requirements and handoff_reason
                 await alertWife(customerNumber, llmResponse, 'NEEDS_HELP');
                 alertedCustomers.add(customerNumber);
                 console.log(`📝 Added ${customerNumber} to alerted list`);
@@ -679,7 +605,7 @@ async function processMessageWithLLM(jid, messageText, userId) {
             return;
         }
         
-        // ===== Priority 3: Normal Response =====
+        // Priority 3: Normal Response
         const replyText = llmResponse.reply;
         
         if (replyText && replyText.trim() !== '') {
@@ -714,24 +640,18 @@ async function processMessageWithLLM(jid, messageText, userId) {
  */
 async function lockConversation(customerNumber) {
     try {
-        const axios = require('axios');
         const LLM_API_URL = process.env.LLM_API_URL;
         
-        // ✅ PRODUCTION: Validate LLM_API_URL exists
         if (!LLM_API_URL) {
             console.error('❌ LLM_API_URL not configured - cannot lock conversation');
-            console.error('   Please set LLM_API_URL environment variable');
             return false;
         }
         
-        // ✅ PRODUCTION: Add timeout and headers
         await axios.post(`${LLM_API_URL}/lock_conversation`, {
             user_id: customerNumber
         }, {
-            timeout: 10000,  // 10 second timeout
-            headers: {
-                'Content-Type': 'application/json'
-            }
+            timeout: 10000,
+            headers: { 'Content-Type': 'application/json' }
         });
         
         console.log(`✅ Conversation permanently locked for ${customerNumber}`);
@@ -740,7 +660,6 @@ async function lockConversation(customerNumber) {
     } catch (error) {
         console.error('❌ Error locking conversation:', error.message);
         
-        // ✅ PRODUCTION: More detailed error logging
         if (error.code === 'ECONNABORTED') {
             console.error('   Reason: Request timeout (Python service too slow)');
         } else if (error.code === 'ECONNREFUSED') {
@@ -753,6 +672,7 @@ async function lockConversation(customerNumber) {
         return false;
     }
 }
+
 /**
  * Initialize WhatsApp client
  */
@@ -765,19 +685,18 @@ async function initializeWhatsAppClient() {
         const SUPABASE_DB_URL = process.env.SUPABASE_DB_URL;
         const IS_PRODUCTION = !!process.env.RENDER_SERVICE_NAME;
 
-        let state, saveCreds, savePhoneNumber, clearSessionLock; // ✅ Added new functions
+        let state, saveCreds, savePhoneNumber, clearSessionLock;
 
         if (SUPABASE_DB_URL && IS_PRODUCTION) {
             console.log('🗄️  Using Supabase for auth storage (production mode)');
             const authState = await useSupabaseAuthState(SUPABASE_DB_URL);
             state = authState.state;
             saveCreds = authState.saveCreds;
-            savePhoneNumber = authState.savePhoneNumber; // ✅ NEW
-            clearSessionLock = authState.clearSessionLock; // ✅ NEW
+            savePhoneNumber = authState.savePhoneNumber;
+            clearSessionLock = authState.clearSessionLock;
             
         } else {
             console.log('📁 Using file-based auth storage (development mode)');
-            const { useMultiFileAuthState } = require('@whiskeysockets/baileys');
             const authFolder = path.join(__dirname, 'auth_info');
             
             if (!fs.existsSync(authFolder)) {
@@ -787,7 +706,7 @@ async function initializeWhatsAppClient() {
             const fileAuth = await useMultiFileAuthState(authFolder);
             state = fileAuth.state;
             saveCreds = fileAuth.saveCreds;
-            savePhoneNumber = null; // Not used in dev mode
+            savePhoneNumber = null;
             clearSessionLock = null;
         }
         
@@ -809,7 +728,7 @@ async function initializeWhatsAppClient() {
             getMessage: async () => ({ conversation: 'Hi' })
         });
         
-        // ✅ Handle connection updates
+        // Handle connection updates
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
@@ -828,23 +747,19 @@ async function initializeWhatsAppClient() {
                     lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut : true;
                 
                 console.log('❌ Connection closed:', lastDisconnect?.error?.message || 'Unknown reason');
-                
                 updateBotState({ isReady: false, qrCodeData: '' });
                 
                 const statusCode = lastDisconnect?.error instanceof Boom 
                     ? lastDisconnect.error.output.statusCode 
                     : null;
                 
-                // ✅ ONLY clear auth on MANUAL logout
                 if (statusCode === DisconnectReason.loggedOut) {
                     console.log('🚪 User logged out manually from phone');
                     
-                    // ✅ Clear session lock
                     if (clearSessionLock) {
                         await clearSessionLock();
                     }
                     
-                    // Clear auth from Supabase
                     if (process.env.SUPABASE_DB_URL && process.env.RENDER_SERVICE_NAME) {
                         try {
                             const { Client } = require('pg');
@@ -887,7 +802,6 @@ async function initializeWhatsAppClient() {
                 }
             }
             
-            // ✅ Handle successful connection
             if (connection === 'open') {
                 console.log('✅ WhatsApp connected successfully!');
                 
@@ -903,7 +817,7 @@ async function initializeWhatsAppClient() {
                         qrCodeData: '', 
                         reconnectAttempts: 0,
                         lastConnected: new Date().toLocaleString(),
-                        connectedPhone: maskedNumber  // ← KEY LINE
+                        connectedPhone: maskedNumber
                     });
                 } else {
                     updateBotState({ 
@@ -916,7 +830,6 @@ async function initializeWhatsAppClient() {
                 }
                 
                 console.log('👂 Bot is now listening for messages...\n');
-                
                 reconnectAttempts = 0;            
             }
         });
@@ -936,6 +849,7 @@ async function initializeWhatsAppClient() {
         throw error;
     }
 }
+
 /**
  * Check LLM health on startup
  */
@@ -967,13 +881,8 @@ async function main() {
     isInitializing = true;
     
     try {
-        // Start web interface
         startWebServer();
-        
-        // Check LLM health
         await checkLLMOnStartup();
-        
-        // Initialize WhatsApp
         await initializeWhatsAppClient();
         
         isInitialized = true;
@@ -995,7 +904,7 @@ process.on('SIGINT', () => {
     process.exit(0);
 });
 
-// ✅ Only start if run directly (not imported)
+// Only start if run directly (not imported)
 if (require.main === module) {
     main();
 }
