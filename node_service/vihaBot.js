@@ -935,17 +935,28 @@ async function handleIncomingMessage(message) {
                 await sendTextMessage(jid,
                     `🤖 *Admin Commands*\n\n` +
                     `📝 *RESET <number>*\n` +
-                    `   Reset customer conversation\n` +
                     `   Example: RESET 919942463672\n\n` +
                     `🔓 *UNLOCK <number>*\n` +
-                    `   Unlock locked conversation\n` +
                     `   Example: UNLOCK 919942463672\n\n` +
                     `🔒 *LOCK <number>*\n` +
-                    `   Silence bot for a contact\n` +
                     `   Example: LOCK 919942463672\n\n` +
+                    `📊 *SUMMARY <days or date range>*\n` +
+                    `   Example: SUMMARY / SUMMARY 7 / SUMMARY 12/02 19/02\n\n` +
+                    `📋 *LEADS <days>*\n` +
+                    `   Example: LEADS 7\n\n` +
+                    `🔍 *INFO <number>*\n` +
+                    `   Example: INFO 919942463672\n\n` +
+                    `⏳ *PENDING <days or date range>*\n` +
+                    `   Example: PENDING / PENDING 7 / PENDING 12/02 19/02\n\n` +
+                    `⚠️ *FOLLOWUP <days or date range>*\n` +
+                    `   Example: FOLLOWUP / FOLLOWUP 2 / FOLLOWUP 12/02 19/02\n\n` +
+                    `🔥 *HOTLEADS <min_qty> <days or date range>*\n` +
+                    `   Example: HOTLEADS / HOTLEADS 50 / HOTLEADS 50 12/02 19/02\n\n` +
+                    `🔒 *LOCKED <days or date range>*\n` +
+                    `   Example: LOCKED / LOCKED 7 / LOCKED 12/02 19/02\n\n` +
                     `📊 *STATUS*\n` +
                     `   Show bot status\n\n` +
-                    `💡 Works: RESET, Reset, reset`            
+                    `💡 All commands work in any case: RESET, Reset, reset`
                 );
                 console.log(`✅ HELP sent\n`);
                 return;

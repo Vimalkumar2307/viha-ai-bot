@@ -593,7 +593,7 @@ async def get_summary(request: SummaryRequest):
                         customer_number, quantity, budget_per_piece,
                         timeline, location, status, updated_at
                     FROM leads
-                    WHERE created_at BETWEEN %  s AND %s
+                    WHERE created_at BETWEEN %s AND %s
                     ORDER BY
                         CASE status
                             WHEN 'products_shown' THEN
