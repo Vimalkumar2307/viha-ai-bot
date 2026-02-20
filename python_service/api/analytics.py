@@ -89,7 +89,7 @@ async def get_summary(request: SummaryRequest):
                 cursor.execute("""
                     SELECT
                         customer_number, quantity, budget_per_piece,
-                        timeline, location, status, updated_at
+                        timeline, location, status, updated_at, push_name
                     FROM leads
                     WHERE created_at BETWEEN %s AND %s
                     ORDER BY
@@ -109,7 +109,7 @@ async def get_summary(request: SummaryRequest):
         # Build leads list
         leads = []
         for row in leads_rows:
-            customer_number, quantity, budget, timeline, location, status, updated_at = row
+            customer_number, quantity, budget, timeline, location, status, updated_at, push_name = row
             leads.append({
                 "customer_number": customer_number,
                 "quantity":        quantity,
@@ -117,7 +117,8 @@ async def get_summary(request: SummaryRequest):
                 "timeline":        timeline,
                 "location":        location,
                 "status":          status,
-                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-"
+                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-",
+                "push_name":        push_name or ""
             })
 
         locations_str = ", ".join(

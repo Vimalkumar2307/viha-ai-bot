@@ -518,7 +518,8 @@ async function handleIncomingMessage(message) {
                             const budget   = lead.budget   ? `₹${lead.budget}/pc`   : 'Budget ?';
                             const when     = lead.timeline || 'Date ?';
                             const location = lead.location || 'Location ?';
-                            summaryMsg += `${index + 1}. +${lead.customer_number}\n`;
+                            const name = lead.push_name ? ` (${lead.push_name})` : '';
+                            summaryMsg += `${index + 1}. +${lead.customer_number}${name}\n`;
                             summaryMsg += `   ${qty} | ${budget} | ${when} | ${location}\n`;
                         });
                     } else {
