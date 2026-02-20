@@ -122,13 +122,14 @@ async function sendProductImages(jid, products, requirementsSummary) {
     }
 }
 
-async function alertWife(customerNumber, llmResponse, reason = 'NEEDS_HELP') {
+async function alertWife(customerNumber, llmResponse, reason = 'NEEDS_HELP', pushName = '') {
     try {
         let alertMessage = '';
 
         if (reason === 'NEEDS_HELP' || reason === 'PRODUCTS_SHOWN') {
             alertMessage = `🔔 *CUSTOMER NEEDS HELP*\n\n`;
-            alertMessage += `Customer: +${customerNumber}\n\n`;
+            alertMessage += `Customer: +${customerNumber}\n`;
+            alertMessage += pushName ? `Name: ${pushName}\n\n` : `\n`;
 
             if (llmResponse.customer_requirements) {
                 const req = llmResponse.customer_requirements;
@@ -1021,7 +1022,7 @@ async function handleIncomingMessage(message) {
 
         // SMART MESSAGE BATCHING WITH DYNAMIC TIMEOUT
         if (!userMessageQueues.has(userId)) {
-            userMessageQueues.set(userId, { messages: [], timeoutId: null, jid: jid, isFirstMessage: true });
+            userMessageQueues.set(userId, { messages: [], timeoutId: null, jid: jid, isFirstMessage: true, pushName: message.pushName || '' });
         }
 
         const queue = userMessageQueues.get(userId);
@@ -1053,7 +1054,7 @@ async function handleIncomingMessage(message) {
                 console.log('✅ Switching to 10-second timeout for subsequent messages');
             }
 
-            await processMessageWithLLM(jid, combinedMessage, userId);
+            await processMessageWithLLM(jid, combinedMessage, userId, queue.pushName);
         }, timeoutDuration);
 
     } catch (error) {
@@ -1061,20 +1062,20 @@ async function handleIncomingMessage(message) {
     }
 }
 
-async function processMessageWithLLM(jid, messageText, userId) {
+async function processMessageWithLLM(jid, messageText, userId, pushName = '') {
     try {
         if (!USE_LLM) {
             await sendTextMessage(jid, "Our team will contact you shortly. 😊");
             return;
         }
 
-        const llmResponse = await chatWithLLM(messageText, userId);
+        const llmResponse = await chatWithLLM(messageText, userId, pushName);
 
         if (!llmResponse) {
             console.log('❌ LLM API failed - Handing off to human');
             const customerNumber = jid.split('@')[0];
             if (!alertedCustomers.has(customerNumber)) {
-                await alertWife(customerNumber, messageText, 'BOT_ERROR');
+                await alertWife(customerNumber, messageText, 'BOT_ERROR', pushName);
                 alertedCustomers.add(customerNumber);
             }
             await sendTextMessage(jid, "Our team will contact you shortly. Thank you! 🙏");
@@ -1103,7 +1104,7 @@ async function processMessageWithLLM(jid, messageText, userId) {
                         customer_requirements: llmResponse.customer_requirements,
                         handoff_reason: llmResponse.handoff_reason
                     });
-                    await alertWife(customerNumber, llmResponse, 'PRODUCTS_SHOWN');
+                    await alertWife(customerNumber, llmResponse, 'PRODUCTS_SHOWN', pushName);
                     alertedCustomers.add(customerNumber);
                 }
             } else {
@@ -1125,7 +1126,7 @@ async function processMessageWithLLM(jid, messageText, userId) {
 
             const customerNumber = userId;
             if (!alertedCustomers.has(customerNumber)) {
-                await alertWife(customerNumber, llmResponse, 'NEEDS_HELP');
+                await alertWife(customerNumber, llmResponse, 'NEEDS_HELP', pushName);
                 alertedCustomers.add(customerNumber);
             } else {
                 console.log(`🔕 Already alerted, bot staying silent\n`);

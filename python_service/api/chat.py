@@ -81,7 +81,7 @@ async def chat(request: ChatRequest):
                 lead_status = "requirements_collecting"
 
             response["last_message"] = request.message
-            save_or_update_lead(request.user_id, response, lead_status)
+            save_or_update_lead(request.user_id, response, lead_status, request.push_name)
 
         return {
             "status":               "success",

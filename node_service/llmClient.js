@@ -21,14 +21,15 @@ console.log(`🔗 LLM API configured: ${LLM_API_URL}`);
 /**
  * Call LangChain Complete Bot API
  */
-async function chatWithLLM(message, userId = 'default') {
+async function chatWithLLM(message, userId = "default", pushName = '') {
     try {
         console.log('🤖 Calling LangChain Bot API...');
         const startTime = Date.now();
         
         const response = await axios.post(`${LLM_API_URL}/chat`, {
             user_id: userId,
-            message: message
+            message: message,
+            push_name: pushName
         }, {
             timeout: 30000
         });

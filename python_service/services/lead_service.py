@@ -7,7 +7,7 @@ import re
 from db.connection import get_db_connection
 
 
-def save_or_update_lead(customer_number: str, response: dict, status: str = None):
+def save_or_update_lead(customer_number: str, response: dict, status: str = None, push_name: str = ""):
     """
     Insert lead if new, update if exists.
     Called after every bot interaction that has requirements.
@@ -56,6 +56,7 @@ def save_or_update_lead(customer_number: str, response: dict, status: str = None
                     # UPDATE existing lead — only overwrite non-null values
                     cursor.execute("""
                         UPDATE leads SET
+                            push_name        = COALESCE(NULLIF(%s, ''), push_name),
                             quantity         = COALESCE(%s, quantity),
                             budget_per_piece = COALESCE(%s, budget_per_piece),
                             location         = COALESCE(%s, location),
@@ -65,7 +66,7 @@ def save_or_update_lead(customer_number: str, response: dict, status: str = None
                             updated_at       = NOW()
                         WHERE customer_number = %s
                     """, (
-                        quantity, budget_numeric, location, timeline,
+                        push_name, quantity, budget_numeric, location, timeline,
                         status, last_msg, customer_number
                     ))
                     print(f"    📝 Lead updated: {customer_number} → {status}")
@@ -73,11 +74,11 @@ def save_or_update_lead(customer_number: str, response: dict, status: str = None
                     # INSERT new lead
                     cursor.execute("""
                         INSERT INTO leads
-                            (customer_number, quantity, budget_per_piece,
-                             location, timeline, status, last_message)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                            (customer_number, push_name, quantity, budget_per_piece,
+                            location, timeline, status, last_message)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
-                        customer_number, quantity, budget_numeric,
+                        customer_number, push_name, quantity, budget_numeric,
                         location, timeline, status, last_msg
                     ))
                     print(f"    📝 Lead created: {customer_number} → {status}")
