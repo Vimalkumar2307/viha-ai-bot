@@ -15,9 +15,9 @@ const axios  = require('axios');
 const { chatWithLLM, checkLLMHealth, LLM_API_URL } = require('./llmClient');
 const { startWebServer, updateBotState }            = require('./webInterface');
 const { useSupabaseAuthState }                      = require('./authStateSupabase');
-const { setSock, sendTextMessage, sendProductImages, alertWife } = require('./utils/messageHelper');
-const { handleAdminCommand }                        = require('./commands/adminCommands');
-const { registerScheduledJobs }                     = require('./jobs/scheduledJobs');
+const { setSock, sendTextMessage, sendProductImages, alertWife } = require('../utils/messageHelper');
+const { handleAdminCommand }                        = require('../commands/adminCommands');
+const { registerScheduledJobs }                     = require('../jobs/scheduledJobs');
 
 // Baileys
 const {

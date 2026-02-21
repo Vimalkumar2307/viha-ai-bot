@@ -2,9 +2,9 @@
   "name": "viha-bot-node-service",
   "version": "2.2.0",
   "description": "WhatsApp interface for Viha Bot",
-  "main": "vihaBot.js",
+  "main": "core/vihaBot.js",
   "scripts": {
-    "start": "node vihaBot.js"
+    "start": "node core/vihaBot.js"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",
