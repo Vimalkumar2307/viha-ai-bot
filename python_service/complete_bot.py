@@ -303,11 +303,49 @@ def extract_customer_requirements(message: str) -> dict:
             
     # ===== STEP 5: Extract LOCATION =====
     known_cities = [
-        "chennai", "bangalore", "bengaluru", "coimbatore", "madurai",
-        "hyderabad", "kochi", "mumbai", "delhi", "pune", "mysore",
-        "trivandrum", "vijayawada", "erode", "salem", "tiruppur",
-        "guntur", "vizag", "tirunelveli", "thanjavur", "trichy",
-        "komarapalayam", "karur", "dindigul", "vellore", "hosur"
+        # Tamil Nadu
+        "chennai", "coimbatore", "madurai", "trichy", "salem", "tiruppur",
+        "erode", "vellore", "thoothukudi", "tirunelveli", "thanjavur",
+        "karur", "dindigul", "kumbakonam", "hosur", "komarapalayam",
+        "namakkal", "pudukkottai", "sivakasi", "pollachi", "udumalpet",
+        "palani", "rajapalayam", "virudhunagar", "nagercoil", "kanchipuram",
+        "tambaram", "avadi", "ambattur", "tiruvallur", "cuddalore",
+        "villupuram", "kallakurichi", "perambalur", "ariyalur", "nagapattinam",
+        "mayiladuthurai", "theni", "krishnagiri", "dharmapuri", "tiruvannamalai",
+        "ranipet", "chengalpattu", "tenkasi", "tirupattur","komarapalayam",
+
+        # Abbreviations
+        "cbe", "chn", "mdu", "blr", "hyd", "mum", "del", "pune",
+
+        # Telangana
+        "hyderabad", "warangal", "nizamabad", "karimnagar", "khammam",
+        "mahbubnagar", "nalgonda", "adilabad", "suryapet", "siddipet",
+        "miryalaguda", "jagtial", "mancherial", "ramagundam", "secunderabad",
+
+        # Andhra Pradesh
+        "vijayawada", "visakhapatnam", "vizag", "guntur", "nellore",
+        "kurnool", "rajahmundry", "tirupati", "kakinada", "anantapur",
+        "kadapa", "ongole", "eluru", "bhimavaram", "machilipatnam",
+        "srikakulam", "vizianagaram", "chittoor", "hindupur", "tenali",
+        "narasaraopet", "proddatur", "tadipatri", "guntakal", "adoni",
+        "nandyal", "tadepalligudem", "amalapuram", "palasa", "bapatla",
+
+         # Kerala
+        "kochi", "trivandrum", "kozhikode", "thrissur", "kollam",
+        "palakkad", "malappuram", "kannur", "kottayam", "alappuzha",
+        "ernakulam", "calicut", "trissur", "kasaragod", "pathanamthitta",
+        "idukki", "wayanad",
+
+         # Karnataka
+        "bangalore", "bengaluru","bangalore" ,"mysore", "mysuru", "hubli", "mangalore",
+        "belgaum", "gulbarga", "bellary", "bijapur", "shimoga",
+        "tumkur", "davangere", "udupi", "hassan", "mandya",
+        "dharwad", "bagalkot", "raichur", "koppal", "gadag",
+        "chikmagalur", "kodagu", "coorg", "hospet", "chitradurga",
+
+        # Other major cities
+        "mumbai", "delhi", "pune", "kolkata", "ahmedabad", "surat",
+        "jaipur", "lucknow", "kanpur", "nagpur", "indore", "bhopal",
     ]
     
     for city in known_cities:
@@ -327,7 +365,7 @@ def extract_customer_requirements(message: str) -> dict:
         if len(words) <= 3:
             for word in words:
                 word_clean = word.strip()
-                if (len(word_clean) > 3 and 
+                if (len(word_clean) >= 3 and 
                     word_clean[0].isupper() and 
                     word_clean.isalpha()):
                     
