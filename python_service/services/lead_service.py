@@ -4,7 +4,9 @@ Called after every bot chat interaction that has requirements.
 """
 
 import re
+from datetime import datetime
 from db.connection import get_db_connection
+from dateutil import parser as date_parser
 
 
 def save_or_update_lead(customer_number: str, response: dict, status: str = None, push_name: str = ""):
@@ -37,6 +39,18 @@ def save_or_update_lead(customer_number: str, response: dict, status: str = None
         last_msg = response.get("last_message", "")
 
         # Parse budget string to numeric (e.g. "₹50" → 50.0)
+        # Parse event_date from timeline
+        event_date = None
+        if timeline:
+            try:
+                parsed = date_parser.parse(timeline, fuzzy=True)
+                if parsed.date() < datetime.now().date():
+                    parsed = parsed.replace(year=datetime.now().year + 1)
+                event_date = parsed.date()
+            except:
+                event_date = None
+
+        # Parse budget string to numeric (e.g. "₹50" → 50.0)
         budget_numeric = None
         if budget:
             numbers = re.findall(r'\d+\.?\d*', str(budget))
@@ -61,13 +75,14 @@ def save_or_update_lead(customer_number: str, response: dict, status: str = None
                             budget_per_piece = COALESCE(%s, budget_per_piece),
                             location         = COALESCE(%s, location),
                             timeline         = COALESCE(%s, timeline),
+                            event_date       = COALESCE(%s, event_date),
                             status           = %s,
                             last_message     = COALESCE(%s, last_message),
                             updated_at       = NOW()
                         WHERE customer_number = %s
                     """, (
                         push_name, quantity, budget_numeric, location, timeline,
-                        status, last_msg, customer_number
+                        event_date, status, last_msg, customer_number
                     ))
                     print(f"    📝 Lead updated: {customer_number} → {status}")
                 else:
@@ -75,11 +90,11 @@ def save_or_update_lead(customer_number: str, response: dict, status: str = None
                     cursor.execute("""
                         INSERT INTO leads
                             (customer_number, push_name, quantity, budget_per_piece,
-                            location, timeline, status, last_message)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                            location, timeline, event_date, status, last_message)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (
                         customer_number, push_name, quantity, budget_numeric,
-                        location, timeline, status, last_msg
+                        location, timeline, event_date, status, last_msg
                     ))
                     print(f"    📝 Lead created: {customer_number} → {status}")
 

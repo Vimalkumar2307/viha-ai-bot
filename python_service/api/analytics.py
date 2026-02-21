@@ -11,7 +11,8 @@ from fastapi import APIRouter
 from datetime import datetime, timedelta
 from models.schemas import (
     SummaryRequest, PendingRequest,
-    FollowupRequest, HotleadsRequest, LockedRequest
+    FollowupRequest, HotleadsRequest, LockedRequest,
+    UpcomingEventsRequest
 )
 from db.connection import get_db_connection
 
@@ -461,4 +462,68 @@ async def get_locked(request: LockedRequest):
 
     except Exception as e:
         print(f"❌ Locked fetch failed: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+# ============================================================
+# UPCOMING EVENTS
+# ============================================================
+
+@router.post("/upcoming_events")
+async def get_upcoming_events(request: UpcomingEventsRequest):
+    try:
+        today = datetime.now().date()
+        target = today + timedelta(days=request.days_ahead)
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT
+                        customer_number, push_name, quantity,
+                        budget_per_piece, location, timeline,
+                        event_date, status, created_at
+                    FROM leads
+                    WHERE event_date BETWEEN %s AND %s
+                      AND status != 'locked'
+                    ORDER BY event_date ASC
+                """, (today, target))
+                rows = cursor.fetchall()
+
+        if not rows:
+            return {
+                "status":     "success",
+                "total":      0,
+                "leads":      [],
+                "days_ahead": request.days_ahead
+            }
+
+        leads = []
+        for row in rows:
+            customer_number, push_name, quantity, budget, location, timeline, event_date, status, created_at = row
+            days_remaining = (event_date - today).days
+
+            leads.append({
+                "customer_number": customer_number,
+                "push_name":       push_name or "",
+                "quantity":        quantity,
+                "budget":          f"₹{int(budget)}" if budget else None,
+                "location":        location,
+                "timeline":        timeline,
+                "event_date":      event_date.strftime("%d %b %Y") if event_date else None,
+                "days_remaining":  days_remaining,
+                "status":          status,
+                "enquired_on":     created_at.strftime("%d %b") if created_at else "-"
+            })
+
+        return {
+            "status":     "success",
+            "total":      len(leads),
+            "days_ahead": request.days_ahead,
+            "leads":      leads
+        }
+
+    except Exception as e:
+        print(f"❌ Upcoming events fetch failed: {e}")
+        import traceback
+        traceback.print_exc()
         return {"status": "error", "message": str(e)}

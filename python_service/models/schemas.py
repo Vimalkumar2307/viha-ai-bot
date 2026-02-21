@@ -60,3 +60,7 @@ class HotleadsRequest(BaseModel):
 class LockedRequest(BaseModel):
     start_date: str | None = None
     end_date: str | None = None
+
+
+class UpcomingEventsRequest(BaseModel):
+    days_ahead: int = 10
