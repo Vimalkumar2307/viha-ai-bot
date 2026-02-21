@@ -22,8 +22,6 @@ from bot.nodes import (
     validation_router,
     product_search_node,
     recommendation_node,
-    product_selection_node,
-    order_confirmation_node,
 )
 
 
@@ -40,8 +38,6 @@ def build_production_graph():
     workflow.add_node("validate",             validation_node)
     workflow.add_node("search_products",      product_search_node)
     workflow.add_node("recommend",            recommendation_node)
-    workflow.add_node("select_product",       product_selection_node)
-    workflow.add_node("confirm_order",        order_confirmation_node)
 
     # ── Entry point ───────────────────────────────────────────────────────
     def entry_router(state: BotState) -> Literal["greeting", "classify_intent"]:
