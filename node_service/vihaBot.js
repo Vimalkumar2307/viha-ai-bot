@@ -970,6 +970,56 @@ async function handleIncomingMessage(message) {
                 return;
             }
 
+            // UPCOMING COMMAND
+            if (msgUpper.startsWith('UPCOMING') || msgUpper === 'UPCOMING') {
+                console.log(`✅✅✅ UPCOMING COMMAND MATCHED!`);
+
+                const parts = msg.trim().split(/\s+/);
+                const daysAhead = parts[1] && !isNaN(parts[1]) ? parseInt(parts[1]) : 7;
+
+                try {
+                    const response = await axios.post(
+                        `${process.env.LLM_API_URL}/upcoming_events`,
+                        { days_ahead: daysAhead },
+                        { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+                    );
+
+                    const d = response.data;
+
+                    if (d.total === 0) {
+                        await sendTextMessage(jid, `📅 No upcoming events in next ${daysAhead} days.`);
+                        return;
+                    }
+
+                    let upcomingMsg = `📅 *Upcoming Events - Next ${daysAhead} days*\n`;
+                    upcomingMsg += `Total: ${d.total}\n`;
+                    upcomingMsg += `━━━━━━━━━━━━━━━━━━\n\n`;
+
+                    d.leads.forEach((lead, index) => {
+                        const name     = lead.push_name ? ` (${lead.push_name})` : '';
+                        const qty      = lead.quantity  ? `${lead.quantity} pcs` : 'Qty ?';
+                        const budget   = lead.budget    ? `${lead.budget}/pc`    : 'Budget ?';
+                        const location = lead.location  || 'Location ?';
+                        upcomingMsg += `${index + 1}. +${lead.customer_number}${name}\n`;
+                        upcomingMsg += `   ${qty} | ${budget} | ${location}\n`;
+                        upcomingMsg += `   🎯 Event: ${lead.event_date} (${lead.days_remaining} days away)\n`;
+                        upcomingMsg += `   📅 Enquired: ${lead.enquired_on}\n\n`;
+                    });
+
+                    upcomingMsg += `━━━━━━━━━━━━━━━━━━\n`;
+                    upcomingMsg += `💡 INFO <number> for full details\n`;
+                    upcomingMsg += `💡 LOCK <number> to silence bot`;
+
+                    await sendTextMessage(jid, upcomingMsg);
+                    console.log(`✅ Upcoming events sent\n`);
+
+                } catch (error) {
+                    console.error(`❌ Upcoming events fetch failed:`, error.message);
+                    await sendTextMessage(jid, `❌ Failed to fetch upcoming events: ${error.message}`);
+                }
+                return;
+            }
+
             // No command matched - don't process as customer
             console.log(`⚠️⚠️⚠️ NO ADMIN COMMAND MATCHED! Message: "${msg}"`);
             return;
@@ -1350,7 +1400,7 @@ async function sendMorningBriefing() {
         yesterday.setDate(yesterday.getDate() - 1);
         const yesterdayStr = yesterday.toISOString().split('T')[0];
 
-        const [followupRes, pendingRes] = await Promise.all([
+        const [followupRes, pendingRes, upcomingRes] = await Promise.all([
             axios.post(
                 `${process.env.LLM_API_URL}/followup`,
                 { start_date: yesterdayStr, end_date: yesterdayStr, silent_days: 1 },
@@ -1360,14 +1410,19 @@ async function sendMorningBriefing() {
                 `${process.env.LLM_API_URL}/pending`,
                 { start_date: yesterdayStr, end_date: yesterdayStr },
                 { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+            ),
+            axios.post(
+                `${process.env.LLM_API_URL}/upcoming_events`,
+                { days_ahead: 10 },
+                { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
             )
         ]);
 
         const f = followupRes.data;
         const p = pendingRes.data;
+        const u = upcomingRes.data;
 
-        // Skip if nothing to action
-        if (f.total === 0 && p.total === 0) {
+        if (f.total === 0 && p.total === 0 && u.total === 0) {
             console.log('✅ No morning briefing needed - nothing pending');
             return;
         }
@@ -1375,6 +1430,21 @@ async function sendMorningBriefing() {
         const dateLabel = yesterday.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 
         let msg = `☀️ *Good Morning! Briefing - ${dateLabel}*\n\n`;
+
+        if (u.total > 0) {
+            msg += `🎯 *Upcoming Events - Next 10 Days: ${u.total}*\n`;
+            msg += `(Follow up to convert!)\n\n`;
+            u.leads.forEach((lead, i) => {
+                const name     = lead.push_name ? ` (${lead.push_name})` : '';
+                const qty      = lead.quantity  ? `${lead.quantity} pcs` : 'Qty ?';
+                const budget   = lead.budget    ? `${lead.budget}/pc`    : 'Budget ?';
+                const location = lead.location  || 'Location ?';
+                msg += `${i + 1}. +${lead.customer_number}${name}\n`;
+                msg += `   ${qty} | ${budget} | ${location}\n`;
+                msg += `   🎯 Event: ${lead.event_date} (${lead.days_remaining} days away!)\n`;
+                msg += `   📅 Enquired: ${lead.enquired_on}\n\n`;
+            });
+        }
 
         if (f.total > 0) {
             msg += `⚠️ *Customers to Follow Up: ${f.total}*\n`;
@@ -1408,6 +1478,7 @@ async function sendMorningBriefing() {
         }
 
         msg += `━━━━━━━━━━━━━━━━━━\n`;
+        msg += `💡 UPCOMING 30 for next 30 days\n`;
         msg += `💡 FOLLOWUP for full list\n`;
         msg += `💡 SUMMARY for today's overview\n`;
         msg += `Have a productive day! 💪`;
@@ -1490,6 +1561,133 @@ async function sendEveningSummary() {
     }
 }
 
+// ============================================================
+// WEEKLY REPORT — Every Monday 8:00 AM IST
+// ============================================================
+async function sendWeeklyReport() {
+    try {
+        const today = new Date();
+        const end = today.toISOString().split('T')[0];
+        const start = new Date(today);
+        start.setDate(today.getDate() - 6);
+        const startStr = start.toISOString().split('T')[0];
+
+        const [summaryRes, hotRes] = await Promise.all([
+            axios.post(
+                `${process.env.LLM_API_URL}/summary`,
+                { start_date: startStr, end_date: end },
+                { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+            ),
+            axios.post(
+                `${process.env.LLM_API_URL}/hotleads`,
+                { start_date: startStr, end_date: end, min_quantity: 100 },
+                { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+            )
+        ]);
+
+        const d = summaryRes.data;
+        const h = hotRes.data;
+
+        const startLabel = start.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+        const endLabel   = today.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+
+        let msg = `📅 *Weekly Report*\n`;
+        msg += `${startLabel} - ${endLabel}\n\n`;
+        msg += `📥 Total Leads: ${d.total}\n`;
+        msg += `📸 Products Shown: ${d.products_shown}\n`;
+        msg += `⚠️  Follow-up Pending: ${d.followup_pending}\n`;
+        msg += `🔒 Wife Handling: ${d.locked}\n`;
+        msg += `⏳ Incomplete: ${d.incomplete}\n\n`;
+        msg += `📍 Top Locations: ${d.top_locations}\n\n`;
+
+        if (h.total > 0) {
+            msg += `🔥 *Hot Leads This Week: ${h.total}*\n`;
+            h.leads.forEach((lead, i) => {
+                const name = lead.push_name ? ` (${lead.push_name})` : '';
+                msg += `   ${i + 1}. +${lead.customer_number}${name} - ${lead.quantity} pcs\n`;
+            });
+            msg += `\n`;
+        }
+
+        msg += `━━━━━━━━━━━━━━━━━━\n`;
+        msg += `Have a great week ahead! 💪`;
+
+        await sendTextMessage(WIFE_NUMBER, msg);
+        console.log('✅ Weekly report sent to wife');
+
+    } catch (error) {
+        console.error('❌ Weekly report failed:', error.message);
+    }
+}
+
+
+// ============================================================
+// MONTHLY REPORT — 1st of every month 8:00 AM IST
+// ============================================================
+async function sendMonthlyReport() {
+    try {
+        // Last month start and end
+        const today = new Date();
+        const firstDayThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        const lastDayLastMonth  = new Date(firstDayThisMonth - 1);
+        const firstDayLastMonth = new Date(lastDayLastMonth.getFullYear(), lastDayLastMonth.getMonth(), 1);
+
+        const startStr = firstDayLastMonth.toISOString().split('T')[0];
+        const endStr   = lastDayLastMonth.toISOString().split('T')[0];
+
+        const [summaryRes, hotRes] = await Promise.all([
+            axios.post(
+                `${process.env.LLM_API_URL}/summary`,
+                { start_date: startStr, end_date: endStr },
+                { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+            ),
+            axios.post(
+                `${process.env.LLM_API_URL}/hotleads`,
+                { start_date: startStr, end_date: endStr, min_quantity: 100 },
+                { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+            )
+        ]);
+
+        const d = summaryRes.data;
+        const h = hotRes.data;
+
+        const monthName = firstDayLastMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+
+        let msg = `🗓️ *Monthly Report - ${monthName}*\n\n`;
+        msg += `📥 Total Leads: ${d.total}\n`;
+        msg += `📸 Products Shown: ${d.products_shown}\n`;
+        msg += `⚠️  Follow-up Pending: ${d.followup_pending}\n`;
+        msg += `🔒 Wife Handling: ${d.locked}\n`;
+        msg += `⏳ Incomplete: ${d.incomplete}\n\n`;
+        msg += `📍 Top Locations: ${d.top_locations}\n\n`;
+
+        if (h.total > 0) {
+            msg += `🔥 *Hot Leads This Month: ${h.total}*\n`;
+            h.leads.forEach((lead, i) => {
+                const name = lead.push_name ? ` (${lead.push_name})` : '';
+                msg += `   ${i + 1}. +${lead.customer_number}${name} - ${lead.quantity} pcs\n`;
+            });
+            msg += `\n`;
+        }
+
+        // Conversion rate
+        const conversionRate = d.total > 0
+            ? Math.round((d.products_shown / d.total) * 100)
+            : 0;
+        msg += `📊 *Conversion Rate: ${conversionRate}%*\n`;
+        msg += `(Leads that saw products)\n\n`;
+
+        msg += `━━━━━━━━━━━━━━━━━━\n`;
+        msg += `Great work last month! 🌟 Keep it up!`;
+
+        await sendTextMessage(WIFE_NUMBER, msg);
+        console.log('✅ Monthly report sent to wife');
+
+    } catch (error) {
+        console.error('❌ Monthly report failed:', error.message);
+    }
+}
+
 let isInitializing = false;
 let isInitialized = false;
 
@@ -1520,6 +1718,20 @@ async function main() {
             await sendEveningSummary();
         }, { timezone: "Asia/Kolkata" });
         console.log('✅ Evening summary scheduled at 9:00 PM IST');
+
+        // Weekly report — Every Monday 8:00 AM IST
+        cron.schedule('0 8 * * 1', async () => {
+            console.log('⏰ Sending weekly report to wife...');
+            await sendWeeklyReport();
+        }, { timezone: "Asia/Kolkata" });
+        console.log('✅ Weekly report scheduled every Monday 8:00 AM IST');
+
+        // Monthly report — 1st of every month 8:00 AM IST
+        cron.schedule('0 8 1 * *', async () => {
+            console.log('⏰ Sending monthly report to wife...');
+            await sendMonthlyReport();
+        }, { timezone: "Asia/Kolkata" });
+        console.log('✅ Monthly report scheduled on 1st of every month 8:00 AM IST');
         // ─────────────────────────────────────────────
 
         isInitialized = true;
