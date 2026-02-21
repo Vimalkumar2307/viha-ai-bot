@@ -11,6 +11,7 @@ const path = require('path');
 const { Boom } = require('@hapi/boom');
 const pino = require('pino');
 const axios = require('axios');
+const cron = require('node-cron');
 
 // Import our modules
 const { chatWithLLM, checkLLMHealth, LLM_API_URL } = require('./llmClient');
@@ -1339,6 +1340,156 @@ async function checkLLMOnStartup() {
     }
 }
 
+// ============================================================
+// MORNING BRIEFING — 8:00 AM IST
+// Shows yesterday's pending followups and incomplete leads
+// ============================================================
+async function sendMorningBriefing() {
+    try {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+        const [followupRes, pendingRes] = await Promise.all([
+            axios.post(
+                `${process.env.LLM_API_URL}/followup`,
+                { start_date: yesterdayStr, end_date: yesterdayStr, silent_days: 1 },
+                { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+            ),
+            axios.post(
+                `${process.env.LLM_API_URL}/pending`,
+                { start_date: yesterdayStr, end_date: yesterdayStr },
+                { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+            )
+        ]);
+
+        const f = followupRes.data;
+        const p = pendingRes.data;
+
+        // Skip if nothing to action
+        if (f.total === 0 && p.total === 0) {
+            console.log('✅ No morning briefing needed - nothing pending');
+            return;
+        }
+
+        const dateLabel = yesterday.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+
+        let msg = `☀️ *Good Morning! Briefing - ${dateLabel}*\n\n`;
+
+        if (f.total > 0) {
+            msg += `⚠️ *Customers to Follow Up: ${f.total}*\n`;
+            msg += `(Saw products but went silent)\n\n`;
+            f.leads.forEach((lead, i) => {
+                const name     = lead.push_name ? ` (${lead.push_name})` : '';
+                const qty      = lead.quantity  ? `${lead.quantity} pcs` : 'Qty ?';
+                const budget   = lead.budget    ? `${lead.budget}/pc`    : 'Budget ?';
+                const location = lead.location  || 'Location ?';
+                msg += `${i + 1}. +${lead.customer_number}${name}\n`;
+                msg += `   ${qty} | ${budget} | ${location}\n`;
+                msg += `   🔕 Silent: ${lead.silent_for} day(s)\n\n`;
+            });
+        }
+
+        if (p.total > 0) {
+            msg += `⏳ *Incomplete Conversations: ${p.total}*\n`;
+            msg += `(Still collecting requirements)\n\n`;
+            p.leads.forEach((lead, i) => {
+                const name     = lead.push_name ? ` (${lead.push_name})` : '';
+                const qty      = lead.quantity  ? `${lead.quantity} pcs` : 'Qty ?';
+                const location = lead.location  || 'Location ?';
+                const missing  = lead.missing.length > 0
+                    ? `Missing: ${lead.missing.join(', ')}`
+                    : '';
+                msg += `${i + 1}. +${lead.customer_number}${name}\n`;
+                msg += `   ${qty} | ${location}\n`;
+                if (missing) msg += `   ⚠️ ${missing}\n`;
+                msg += `\n`;
+            });
+        }
+
+        msg += `━━━━━━━━━━━━━━━━━━\n`;
+        msg += `💡 FOLLOWUP for full list\n`;
+        msg += `💡 SUMMARY for today's overview\n`;
+        msg += `Have a productive day! 💪`;
+
+        await sendTextMessage(WIFE_NUMBER, msg);
+        console.log('✅ Morning briefing sent to wife');
+
+    } catch (error) {
+        console.error('❌ Morning briefing failed:', error.message);
+    }
+}
+
+
+// ============================================================
+// EVENING SUMMARY — 9:00 PM IST
+// Shows today's full business summary
+// ============================================================
+async function sendEveningSummary() {
+    try {
+        const today = new Date().toISOString().split('T')[0];
+
+        const [summaryRes, hotRes, followupRes] = await Promise.all([
+            axios.post(
+                `${process.env.LLM_API_URL}/summary`,
+                { start_date: today, end_date: today },
+                { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+            ),
+            axios.post(
+                `${process.env.LLM_API_URL}/hotleads`,
+                { start_date: today, end_date: today, min_quantity: 100 },
+                { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+            ),
+            axios.post(
+                `${process.env.LLM_API_URL}/followup`,
+                { start_date: today, end_date: today, silent_days: 1 },
+                { timeout: 10000, headers: { 'Content-Type': 'application/json' } }
+            )
+        ]);
+
+        const d = summaryRes.data;
+        const h = hotRes.data;
+        const f = followupRes.data;
+
+        let msg = `🌟 *Evening Summary - ${d.start_date}*\n\n`;
+        msg += `📥 Total Leads: ${d.total}\n`;
+        msg += `📸 Products Shown: ${d.products_shown}\n`;
+        msg += `⚠️  Follow-up Pending: ${d.followup_pending}\n`;
+        msg += `🔒 Wife Handling: ${d.locked}\n`;
+        msg += `⏳ Incomplete: ${d.incomplete}\n\n`;
+        msg += `📍 Top Locations: ${d.top_locations}\n`;
+
+        if (h.total > 0) {
+            msg += `\n🔥 *Hot Leads Today (≥100 pcs): ${h.total}*\n`;
+            h.leads.forEach((lead, i) => {
+                const name = lead.push_name ? ` (${lead.push_name})` : '';
+                msg += `   ${i + 1}. +${lead.customer_number}${name} - ${lead.quantity} pcs\n`;
+            });
+        }
+
+        if (f.total > 0) {
+            msg += `\n⚠️  *Customers to Follow Up: ${f.total}*\n`;
+            f.leads.forEach((lead, i) => {
+                const name = lead.push_name ? ` (${lead.push_name})` : '';
+                msg += `   ${i + 1}. +${lead.customer_number}${name} - silent ${lead.silent_for} day(s)\n`;
+            });
+        }
+
+        if (d.total === 0) {
+            msg += `\nNo leads today. 😊\n`;
+        }
+
+        msg += `\n━━━━━━━━━━━━━━━━━━\n`;
+        msg += `Good Night! 🌟 See you tomorrow!`;
+
+        await sendTextMessage(WIFE_NUMBER, msg);
+        console.log('✅ Night summary sent to wife');
+
+    } catch (error) {
+        console.error('❌ Night summary failed:', error.message);
+    }
+}
+
 let isInitializing = false;
 let isInitialized = false;
 
@@ -1354,6 +1505,23 @@ async function main() {
         startWebServer();
         await checkLLMOnStartup();
         await initializeWhatsAppClient();
+
+         // ── Scheduled messages ────────────────────────
+        // Morning briefing — 8:00 AM IST
+        cron.schedule('0 8 * * *', async () => {
+            console.log('⏰ Sending morning briefing to wife...');
+            await sendMorningBriefing();
+        }, { timezone: "Asia/Kolkata" });
+        console.log('✅ Morning briefing scheduled at 8:00 AM IST');
+
+        // Evening summary — 9:00 PM IST
+        cron.schedule('0 21 * * *', async () => {
+            console.log('⏰ Sending evening summary to wife...');
+            await sendEveningSummary();
+        }, { timezone: "Asia/Kolkata" });
+        console.log('✅ Evening summary scheduled at 9:00 PM IST');
+        // ─────────────────────────────────────────────
+
         isInitialized = true;
         isInitializing = false;
     } catch (error) {
