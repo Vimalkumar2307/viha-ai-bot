@@ -104,15 +104,15 @@ async function sendProductImages(jid, products, requirementsSummary) {
         console.log(`📸 Sending requirements summary + ${products.length} product images...`);
         if (requirementsSummary) {
             await sendTextMessage(jid, requirementsSummary);
-            await sleep(1000);
+            await sleep(2000);
         }
         for (let i = 0; i < products.length; i++) {
             const product = products[i];
             const caption = `${i + 1}. ${product.name}\n₹${product.price}/piece`;
             await sendImageMessage(jid, product.image_url, caption);
-            if (i < products.length - 1) await sleep(800);
+            if (i < products.length - 1) await sleep(1500);
         }
-        await sleep(1000);
+        await sleep(2000);
         await sendTextMessage(jid, "Please let us know which one you are interested. We can proceed further.");
         console.log(`✅ Sent all ${products.length} product images with summary and closing message`);
         console.log(`🤝 Conversation handed off to human`);
