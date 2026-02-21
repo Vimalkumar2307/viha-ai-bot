@@ -144,8 +144,8 @@ def extract_customer_requirements(message: str) -> dict:
     # Date patterns - Accept specific dates like "Feb 23", "14/02", "25-02-2026"
     if not extracted["timeline"] and not has_vague_timeline:
         date_patterns = [
-            r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s{0,2}(\d{1,2})\b',
-            r'\b(\d{1,2})\s{0,2}(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\b',
+            r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\s{0,2}(\d{1,2})(?:st|nd|rd|th)?\b',
+            r'\b(\d{1,2})(?:st|nd|rd|th)?\s{0,2}(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\b',
             r'\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})\b',
             r'\b(\d{1,2})[/\-.](\d{1,2})\b',
         ]

@@ -179,7 +179,8 @@ async def get_pending(request: PendingRequest):
                         location,
                         timeline,
                         created_at,
-                        updated_at
+                        updated_at,
+                        push_name
                     FROM leads
                     WHERE status = 'requirements_collecting'
                       AND created_at BETWEEN %s AND %s
@@ -197,7 +198,7 @@ async def get_pending(request: PendingRequest):
 
         leads = []
         for row in rows:
-            customer_number, quantity, budget, location, timeline, created_at, updated_at = row
+            customer_number, quantity, budget, location, timeline, created_at, updated_at, push_name = row
 
             missing = []
             if not quantity: missing.append("quantity")
@@ -213,7 +214,8 @@ async def get_pending(request: PendingRequest):
                 "timeline":        timeline,
                 "missing":         missing,
                 "created_at":      created_at.strftime("%d %b %H:%M") if created_at else "-",
-                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-"
+                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-",
+                "push_name":       push_name or ""
             })
 
         return {
@@ -263,7 +265,8 @@ async def get_followup(request: FollowupRequest):
                         location,
                         timeline,
                         created_at,
-                        updated_at
+                        updated_at,
+                        push_name
                     FROM leads
                     WHERE status = 'products_shown'
                       AND updated_at < %s
@@ -282,7 +285,7 @@ async def get_followup(request: FollowupRequest):
 
         leads = []
         for row in rows:
-            customer_number, quantity, budget, location, timeline, created_at, updated_at = row
+            customer_number, quantity, budget, location, timeline, created_at, updated_at, push_name = row
             silent_for = (datetime.now() - updated_at).days if updated_at else 0
 
             leads.append({
@@ -293,7 +296,8 @@ async def get_followup(request: FollowupRequest):
                 "timeline":        timeline,
                 "silent_for":      silent_for,
                 "created_at":      created_at.strftime("%d %b %H:%M") if created_at else "-",
-                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-"
+                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-",
+                "push_name":       push_name or ""
             })
 
         return {
@@ -343,7 +347,8 @@ async def get_hotleads(request: HotleadsRequest):
                         timeline,
                         status,
                         created_at,
-                        updated_at
+                        updated_at,
+                        push_name
                     FROM leads
                     WHERE quantity >= %s
                       AND created_at BETWEEN %s AND %s
@@ -362,7 +367,7 @@ async def get_hotleads(request: HotleadsRequest):
 
         leads = []
         for row in rows:
-            customer_number, quantity, budget, location, timeline, status, created_at, updated_at = row
+            customer_number, quantity, budget, location, timeline, status, created_at, updated_at, push_name = row
             leads.append({
                 "customer_number": customer_number,
                 "quantity":        quantity,
@@ -371,7 +376,8 @@ async def get_hotleads(request: HotleadsRequest):
                 "timeline":        timeline,
                 "status":          status,
                 "created_at":      created_at.strftime("%d %b %H:%M") if created_at else "-",
-                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-"
+                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-",
+                "push_name":       push_name or ""
             })
 
         return {
@@ -418,7 +424,8 @@ async def get_locked(request: LockedRequest):
                         quantity,
                         budget_per_piece,
                         location,
-                        updated_at
+                        updated_at,
+                        push_name
                     FROM leads
                     WHERE status = 'locked'
                       AND updated_at BETWEEN %s AND %s
@@ -436,13 +443,14 @@ async def get_locked(request: LockedRequest):
 
         leads = []
         for row in rows:
-            customer_number, quantity, budget, location, updated_at = row
+            customer_number, quantity, budget, location, updated_at, push_name = row
             leads.append({
                 "customer_number": customer_number,
                 "quantity":        quantity,
                 "budget":          f"₹{int(budget)}" if budget else None,
                 "location":        location,
-                "locked_at":       updated_at.strftime("%d %b %H:%M") if updated_at else "-"
+                "locked_at":       updated_at.strftime("%d %b %H:%M") if updated_at else "-",
+                "push_name":       push_name or ""
             })
 
         return {

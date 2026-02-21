@@ -589,7 +589,8 @@ async function handleIncomingMessage(message) {
                             ? `Missing: ${lead.missing.join(', ')}`
                             : 'All details collected';
 
-                        pendingMsg += `${index + 1}. +${lead.customer_number}\n`;
+                        const name = lead.push_name ? ` (${lead.push_name})` : '';
+                        pendingMsg += `${index + 1}. +${lead.customer_number}${name}\n`;
                         pendingMsg += `   ${qty} | ${budget} | ${when} | ${location}\n`;
                         pendingMsg += `   ⚠️ ${missing}\n\n`;
                     });
@@ -670,7 +671,8 @@ async function handleIncomingMessage(message) {
                                 ? '1 day ago'
                                 : `${lead.silent_for} days ago`;
 
-                        followupMsg += `${index + 1}. +${lead.customer_number}\n`;
+                        const name = lead.push_name ? ` (${lead.push_name})` : '';
+                        followupMsg += `${index + 1}. +${lead.customer_number}${name}\n`;
                         followupMsg += `   ${qty} | ${budget} | ${when} | ${location}\n`;
                         followupMsg += `   🔕 Silent for: ${silent}\n\n`;
                     });
@@ -759,7 +761,8 @@ async function handleIncomingMessage(message) {
                         const when     = lead.timeline || 'Date ?';
                         const location = lead.location || 'Location ?';
 
-                        hotMsg += `${index + 1}. +${lead.customer_number}\n`;
+                        const name = lead.push_name ? ` (${lead.push_name})` : '';
+                        hotMsg += `${index + 1}. +${lead.customer_number}${name}\n`;
                         hotMsg += `   ${qty} | ${budget} | ${when} | ${location}\n`;
                         hotMsg += `   Status: ${lead.status}\n\n`;
                     });
@@ -821,8 +824,9 @@ async function handleIncomingMessage(message) {
                         const qty      = lead.quantity ? `${lead.quantity} pcs` : 'Qty ?';
                         const budget   = lead.budget   ? `${lead.budget}/pc`    : 'Budget ?';
                         const location = lead.location || 'Location ?';
-
-                        lockedMsg += `${index + 1}. +${lead.customer_number}\n`;
+                        
+                        const name = lead.push_name ? ` (${lead.push_name})` : '';
+                        lockedMsg += `${index + 1}. +${lead.customer_number}${name}\n`
                         lockedMsg += `   ${qty} | ${budget} | ${location}\n`;
                         lockedMsg += `   Locked at: ${lead.locked_at}\n\n`;
                     });
@@ -864,6 +868,7 @@ async function handleIncomingMessage(message) {
                     
                     let infoMsg = `📋 *Customer Info*\n\n`;
                     infoMsg += `📱 +${lead.customer_number}\n\n`;
+                    infoMsg += lead.push_name ? `👤 ${lead.push_name}\n\n` : `\n`;
                     infoMsg += `*Requirements:*\n`;
                     infoMsg += lead.quantity  ? `Qty: ${lead.quantity} pcs\n`    : `Qty: Not provided\n`;
                     infoMsg += lead.budget    ? `Budget: ${lead.budget}/pc\n`     : `Budget: Not provided\n`;

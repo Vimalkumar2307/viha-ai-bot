@@ -38,7 +38,8 @@ async def get_leads(request: LeadsRequest):
                         status,
                         last_message,
                         created_at,
-                        updated_at
+                        updated_at,
+                        push_name
                     FROM leads
                     WHERE created_at >= %s
                     ORDER BY updated_at DESC
@@ -56,7 +57,7 @@ async def get_leads(request: LeadsRequest):
 
         leads = []
         for row in rows:
-            customer_number, quantity, budget, location, timeline, status, last_msg, created_at, updated_at = row
+            customer_number, quantity, budget, location, timeline, status, last_msg, created_at, updated_at, push_name = row
             leads.append({
                 "customer_number": customer_number,
                 "quantity":        quantity,
@@ -64,7 +65,8 @@ async def get_leads(request: LeadsRequest):
                 "timeline":        timeline,
                 "location":        location,
                 "status":          status,
-                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-"
+                "updated_at":      updated_at.strftime("%d %b %H:%M") if updated_at else "-",
+                "push_name": push_name or ""
             })
 
         return {
@@ -102,7 +104,8 @@ async def get_lead_info(customer_number: str):
                         status,
                         last_message,
                         created_at,
-                        updated_at
+                        updated_at,
+                        push_name
                     FROM leads
                     WHERE customer_number = %s
                 """, (customer_number,))
@@ -114,7 +117,7 @@ async def get_lead_info(customer_number: str):
                 "message": f"No lead found for {customer_number}"
             }
 
-        customer_number, quantity, budget, location, timeline, status, last_msg, created_at, updated_at = row
+        customer_number, quantity, budget, location, timeline, status, last_msg, created_at, updated_at, push_name = row
 
         return {
             "status": "success",
@@ -127,7 +130,8 @@ async def get_lead_info(customer_number: str):
                 "status":          status,
                 "last_message":    last_msg,
                 "created_at":      created_at.isoformat() if created_at else None,
-                "updated_at":      updated_at.isoformat() if updated_at else None
+                "updated_at":      updated_at.isoformat() if updated_at else None,
+                "push_name": push_name or ""
             }
         }
 
