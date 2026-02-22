@@ -164,36 +164,43 @@ async function useSupabaseAuthState(dbUrl) {
         }
         
         const saveCreds = async () => {
-            const saveClient = await pool.connect();
-            
-            try {
-                const serializedCreds = JSON.parse(JSON.stringify(creds, BufferJSON.replacer));
-                const serializedKeys = JSON.parse(JSON.stringify(keys, BufferJSON.replacer));
-                
-                // ✅ EXTRACT PHONE NUMBER from creds if available
-                let phoneNumber = currentPhoneNumber;
-                if (creds.me?.id) {
-                    phoneNumber = creds.me.id.split(':')[0];
+            const MAX_RETRIES = 3;
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                let saveClient;
+                try {
+                    saveClient = await pool.connect();
+
+                    const serializedCreds = JSON.parse(JSON.stringify(creds, BufferJSON.replacer));
+                    const serializedKeys = JSON.parse(JSON.stringify(keys, BufferJSON.replacer));
+
+                    let phoneNumber = currentPhoneNumber;
+                    if (creds.me?.id) {
+                        phoneNumber = creds.me.id.split(':')[0];
+                    }
+
+                    await saveClient.query(`
+                        INSERT INTO whatsapp_auth (id, creds, keys, phone_number, updated_at)
+                        VALUES ($1, $2, $3, $4, NOW())
+                        ON CONFLICT (id) 
+                        DO UPDATE SET 
+                            creds = $2, 
+                            keys = $3,
+                            phone_number = COALESCE($4, whatsapp_auth.phone_number),
+                            updated_at = NOW()
+                    `, ['main_session', serializedCreds, serializedKeys, phoneNumber]);
+
+                    console.log('💾 Auth saved to Supabase');
+                    return;
+
+                } catch (error) {
+                    console.error(`⚠️ Save attempt ${attempt}/${MAX_RETRIES} failed: ${error.message}`);
+                    if (saveClient) saveClient.release();
+                    if (attempt < MAX_RETRIES) {
+                        await new Promise(r => setTimeout(r, 2000 * attempt));
+                    }
                 }
-                
-                await saveClient.query(`
-                    INSERT INTO whatsapp_auth (id, creds, keys, phone_number, updated_at)
-                    VALUES ($1, $2, $3, $4, NOW())
-                    ON CONFLICT (id) 
-                    DO UPDATE SET 
-                        creds = $2, 
-                        keys = $3,
-                        phone_number = COALESCE($4, whatsapp_auth.phone_number),
-                        updated_at = NOW()
-                `, ['main_session', serializedCreds, serializedKeys, phoneNumber]);
-                
-                console.log('💾 Auth saved to Supabase');
-                
-            } catch (error) {
-                console.error('❌ Error saving auth:', error.message);
-            } finally {
-                saveClient.release();
             }
+            console.error('⚠️ Could not save creds after 3 attempts — continuing anyway');
         };
         
         return {

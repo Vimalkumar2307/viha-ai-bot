@@ -21,6 +21,8 @@ async function sendMorningBriefing() {
         yesterday.setDate(yesterday.getDate() - 1);
         const yesterdayStr = yesterday.toISOString().split('T')[0];
 
+       const dateLabel = yesterday.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+
         const [followupRes, pendingRes, upcomingRes] = await Promise.all([
             axios.post(
                 `${process.env.LLM_API_URL}/followup`,
@@ -52,8 +54,6 @@ async function sendMorningBriefing() {
             console.log('✅ Morning briefing sent (all clear)');
             return;
         }
-
-        const dateLabel = yesterday.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 
         let msg = `☀️ *Good Morning! Briefing - ${dateLabel}*\n\n`;
 
