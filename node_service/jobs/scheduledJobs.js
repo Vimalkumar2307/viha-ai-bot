@@ -43,8 +43,13 @@ async function sendMorningBriefing() {
         const p = pendingRes.data;
         const u = upcomingRes.data;
 
+        // TO - remove that block entirely, replace with this
         if (f.total === 0 && p.total === 0 && u.total === 0) {
-            console.log('✅ No morning briefing needed - nothing pending');
+            const msg = `☀️ *Good Morning! Briefing - ${dateLabel}*\n\n` +
+                `✅ All clear! No pending follow-ups or upcoming events today.\n\n` +
+                `Have a productive day! 💪`;
+            await sendTextMessage(WIFE_NUMBER, msg);
+            console.log('✅ Morning briefing sent (all clear)');
             return;
         }
 
