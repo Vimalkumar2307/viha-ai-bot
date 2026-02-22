@@ -619,6 +619,15 @@ async function handleAdminCommand(msgUpper, msg, jid, alertedCustomers, lockedCo
 
     // No command matched
     console.log(`⚠️⚠️⚠️ NO ADMIN COMMAND MATCHED! Message: "${msg}"`);
+    await sendTextMessage(jid,
+        `❓ Command not recognised: "${msg}"\n\n` +
+        `Did you mean one of these?\n` +
+        `SUMMARY | LEADS | FOLLOWUP\n` +
+        `PENDING | HOTLEADS | LOCKED\n` +
+        `UPCOMING | INFO | RESET\n` +
+        `UNLOCK | LOCK | STATUS\n\n` +
+        `💡 Type HELP for full guide`
+    );
     return false;
 }
 
