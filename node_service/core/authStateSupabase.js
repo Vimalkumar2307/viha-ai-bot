@@ -17,7 +17,9 @@ function getPool(dbUrl) {
             ssl: { rejectUnauthorized: false },
             max: 3,
             idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 10000,
+            connectionTimeoutMillis: 30000,  // ← 10s to 30s
+            keepAlive: true,                  // ← keep connection alive
+            keepAliveInitialDelayMillis: 10000
         });
         
         console.log('✅ Database connection pool created (max 3 connections)');
