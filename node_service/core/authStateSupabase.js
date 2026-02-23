@@ -197,7 +197,12 @@ async function useSupabaseAuthState(dbUrl) {
         keys = {};
     }
     
+    let saveTimeout = null;
     const saveCreds = async () => {
+        if (saveTimeout) clearTimeout(saveTimeout);
+        await new Promise(resolve => {
+            saveTimeout = setTimeout(resolve, 500);
+        });
         const MAX_RETRIES = 3;
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             let saveClient;
@@ -236,7 +241,7 @@ async function useSupabaseAuthState(dbUrl) {
         }
         console.error('⚠️ Could not save creds after 3 attempts — continuing anyway');
     };
-    
+
     return {
         state: { 
             creds, 
