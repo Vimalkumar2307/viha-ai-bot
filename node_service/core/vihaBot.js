@@ -412,7 +412,14 @@ async function initializeWhatsAppClient() {
                     reconnectAttempts++;
                     console.log(`🔄 Reconnecting... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
                     updateBotState({ reconnectAttempts });
-                    setTimeout(() => initializeWhatsAppClient(), 5000);
+                    const delay = Math.min(5000 * reconnectAttempts, 30000);
+                    setTimeout(async () => {
+                        try {
+                            await initializeWhatsAppClient();
+                        } catch (err) {
+                            console.error(`⚠️ Reconnect attempt ${reconnectAttempts} failed: ${err.message} — will retry`);
+                        }
+                    }, delay);
                 } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
                     console.log('❌ Max reconnection attempts reached.');
                 } else {
@@ -485,9 +492,14 @@ async function main() {
         isInitialized  = true;
         isInitializing = false;
     } catch (error) {
-        console.error('❌ Fatal error:', error);
+        console.error('❌ Fatal startup error:', error.message);
         isInitializing = false;
-        process.exit(1);
+        console.log('🔄 Retrying startup in 15 seconds...');
+        setTimeout(() => {
+            isInitializing = false;
+            isInitialized = false;
+            main();
+        }, 15000);
     }
 }
 

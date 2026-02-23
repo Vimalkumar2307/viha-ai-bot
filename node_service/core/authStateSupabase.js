@@ -36,27 +36,39 @@ function getPool(dbUrl) {
  * ✅ NEW: Check if a session already exists
  */
 async function checkExistingSession(pool) {
-    const client = await pool.connect();
-    
-    try {
-        const result = await client.query(
-            'SELECT phone_number, connected_at FROM whatsapp_auth WHERE id = $1',
-            ['main_session']
-        );
-        
-        if (result.rows.length > 0 && result.rows[0].phone_number) {
-            return {
-                exists: true,
-                phoneNumber: result.rows[0].phone_number,
-                connectedAt: result.rows[0].connected_at
-            };
+    const MAX_RETRIES = 3;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        let client;
+        try {
+            client = await pool.connect();
+
+            const result = await client.query(
+                'SELECT phone_number, connected_at FROM whatsapp_auth WHERE id = $1',
+                ['main_session']
+            );
+
+            client.release();
+
+            if (result.rows.length > 0 && result.rows[0].phone_number) {
+                return {
+                    exists: true,
+                    phoneNumber: result.rows[0].phone_number,
+                    connectedAt: result.rows[0].connected_at
+                };
+            }
+
+            return { exists: false };
+
+        } catch (error) {
+            if (client) client.release();
+            console.error(`⚠️ checkExistingSession attempt ${attempt}/${MAX_RETRIES} failed: ${error.message}`);
+            if (attempt < MAX_RETRIES) {
+                await new Promise(r => setTimeout(r, 2000 * attempt));
+            }
         }
-        
-        return { exists: false };
-        
-    } finally {
-        client.release();
     }
+    console.error('⚠️ Could not check existing session — assuming no active session');
+    return { exists: false };
 }
 
 /**
