@@ -353,7 +353,10 @@ async function initializeWhatsAppClient() {
             browser: ['VihaReturnGifts', 'Chrome', '10.0'],
             generateHighQualityLinkPreview: true,
             defaultQueryTimeoutMs: 60000,
-            getMessage: async () => ({ conversation: 'Hi' })
+            getMessage: async (key) => {
+                console.log(`📦 getMessage called for: ${key.id}`);
+                return undefined;
+            }
         });
 
         // Inject sock into messageHelper
@@ -509,6 +512,16 @@ process.on('SIGINT', () => {
     console.log('\n👋 Shutting down gracefully...');
     if (sock) sock.end();
     process.exit(0);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('⚠️ Unhandled rejection (caught):', reason?.message || reason);
+    // Don't crash — just log it
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('⚠️ Uncaught exception (caught):', error.message);
+    // Don't crash — just log it
 });
 
 if (require.main === module) {
