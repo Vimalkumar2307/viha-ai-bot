@@ -324,7 +324,15 @@ async function initializeWhatsAppClient() {
     try {
         console.log('🔄 Initializing WhatsApp client...');
 
-        const logger        = pino({ level: 'silent' });
+        const logger = pino({ level: 'silent' });
+        
+        // Suppress Baileys internal console output
+        const originalConsoleLog = console.log;
+        console.log = (...args) => {
+            const msg = args[0]?.toString() || '';
+            if (msg.includes('Closing session') || msg.includes('SessionEntry')) return;
+            originalConsoleLog(...args);
+        };
         const SUPABASE_DB_URL = process.env.SUPABASE_DB_URL;
         const IS_PRODUCTION = !!process.env.RENDER_SERVICE_NAME;
 
@@ -437,12 +445,12 @@ async function initializeWhatsAppClient() {
                 }
             }
 
-            if (connection === 'open') {
+           if (connection === 'open') {
                 console.log('✅ WhatsApp connected successfully!');
-                // Re-inject sock after reconnect
                 setSock(sock);
-                // Re-register cron jobs on every connect/reconnect
                 registerScheduledJobs();
+                alertedCustomers.clear();
+                console.log('🔄 Cleared alerted customers cache on reconnect');
 
                 if (savePhoneNumber && state.creds.me?.id) {
                     const phoneNumber  = state.creds.me.id.split(':')[0];
