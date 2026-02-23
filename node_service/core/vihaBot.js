@@ -431,6 +431,8 @@ async function initializeWhatsAppClient() {
                 console.log('✅ WhatsApp connected successfully!');
                 // Re-inject sock after reconnect
                 setSock(sock);
+                // Re-register cron jobs on every connect/reconnect
+                registerScheduledJobs();
 
                 if (savePhoneNumber && state.creds.me?.id) {
                     const phoneNumber  = state.creds.me.id.split(':')[0];

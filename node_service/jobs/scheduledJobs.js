@@ -316,7 +316,15 @@ async function sendMonthlyReport() {
 // ============================================================
 // REGISTER ALL CRON JOBS
 // ============================================================
+let jobsRegistered = false;
+
 function registerScheduledJobs() {
+    if (jobsRegistered) {
+        console.log('⚠️ Cron jobs already registered — skipping');
+        return;
+    }
+    jobsRegistered = true;
+
     // Morning briefing — 8:00 AM IST (daily)
     cron.schedule('0 8 * * *', async () => {
         console.log('⏰ Sending morning briefing to wife...');
