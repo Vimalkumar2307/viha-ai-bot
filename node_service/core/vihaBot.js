@@ -189,6 +189,12 @@ async function handleIncomingMessage(message) {
         // Skip groups and broadcasts
         if (jid.includes('@g.us') || jid.includes('status@broadcast')) return;
 
+        // Skip messages without content (reactions, receipts, notifications)
+        if (!message.message) {
+            console.log('⚠️ No message content — skipping');
+            return;
+        }
+
         // ── Admin commands ────────────────────────────────
         if (isAdminMessage(jid) && !isFromMe) {
 

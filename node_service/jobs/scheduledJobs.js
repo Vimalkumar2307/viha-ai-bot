@@ -341,7 +341,7 @@ function registerScheduledJobs() {
 
 
     // TEST job — 9:40 PM IST (temporary, remove after testing)
-    cron.schedule('10 22 * * *', async () => {
+    cron.schedule('25 22 * * *', async () => {
         console.log('⏰ TEST: Sending evening summary to wife...');
         await sendEveningSummary();
     }, { timezone: 'Asia/Kolkata' });
