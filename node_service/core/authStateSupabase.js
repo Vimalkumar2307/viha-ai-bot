@@ -17,8 +17,8 @@ function getPool(dbUrl) {
             ssl: { rejectUnauthorized: false },
             max: 3,
             idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 30000,  // ← 10s to 30s
-            keepAlive: true,                  // ← keep connection alive
+            connectionTimeoutMillis: 30000,
+            keepAlive: true,
             keepAliveInitialDelayMillis: 10000
         });
         
@@ -27,13 +27,25 @@ function getPool(dbUrl) {
         dbPool.on('error', (err) => {
             console.error('❌ Unexpected database pool error:', err);
         });
+
+        // Ping every 4 minutes to keep Supabase connection alive
+        setInterval(async () => {
+            let pingClient;
+            try {
+                pingClient = await dbPool.connect();
+                await pingClient.query('SELECT 1');
+                pingClient.release();
+            } catch (err) {
+                if (pingClient) pingClient.release();
+            }
+        }, 4 * 60 * 1000);
     }
     
     return dbPool;
 }
 
 /**
- * ✅ NEW: Check if a session already exists
+ * Check if a session already exists
  */
 async function checkExistingSession(pool) {
     const MAX_RETRIES = 3;
@@ -72,7 +84,7 @@ async function checkExistingSession(pool) {
 }
 
 /**
- * ✅ NEW: Save phone number when connection succeeds
+ * Save phone number when connection succeeds
  */
 async function savePhoneNumber(pool, phoneNumber) {
     const client = await pool.connect();
@@ -94,7 +106,7 @@ async function savePhoneNumber(pool, phoneNumber) {
 }
 
 /**
- * ✅ NEW: Clear session lock (only on manual logout)
+ * Clear session lock (only on manual logout)
  */
 async function clearSessionLock(pool) {
     const client = await pool.connect();
@@ -121,14 +133,9 @@ async function clearSessionLock(pool) {
 async function useSupabaseAuthState(dbUrl) {
     const pool = getPool(dbUrl);
     
-    try {
-        console.log('📦 Loading auth from Supabase...');
-    } catch (error) {
-        console.error('❌ Failed to access pool:', error.message);
-        throw error;
-    }
+    console.log('📦 Loading auth from Supabase...');
     
-    // ✅ CHECK: Is there already a connected session?
+    // CHECK: Is there already a connected session?
     const existingSession = await checkExistingSession(pool);
     
     if (existingSession.exists) {
@@ -149,10 +156,11 @@ async function useSupabaseAuthState(dbUrl) {
         console.log('');
     }
     
-    let client;
+    // Load auth with retry logic
     let authResult;
     const MAX_RETRIES = 3;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        let client;
         try {
             client = await pool.connect();
             authResult = await client.query(
@@ -169,108 +177,103 @@ async function useSupabaseAuthState(dbUrl) {
         }
     }
     
-    try {
-        const result = authResult;
+    const result = authResult;
+    
+    let creds, keys, currentPhoneNumber = null;
+    
+    if (result.rows.length > 0 && result.rows[0].creds) {
+        console.log('✅ Found existing auth in database');
         
-        let creds, keys, currentPhoneNumber = null;
+        const storedCreds = result.rows[0].creds;
+        const storedKeys = result.rows[0].keys;
+        currentPhoneNumber = result.rows[0].phone_number;
         
-        if (result.rows.length > 0 && result.rows[0].creds) {
-            console.log('✅ Found existing auth in database');
-            
-            const storedCreds = result.rows[0].creds;
-            const storedKeys = result.rows[0].keys;
-            currentPhoneNumber = result.rows[0].phone_number;
-            
-            creds = JSON.parse(JSON.stringify(storedCreds), BufferJSON.reviver);
-            keys = storedKeys ? JSON.parse(JSON.stringify(storedKeys), BufferJSON.reviver) : {};
-            
-        } else {
-            console.log('📝 No existing auth - initializing new session');
-            creds = initAuthCreds();
-            keys = {};
-        }
+        creds = JSON.parse(JSON.stringify(storedCreds), BufferJSON.reviver);
+        keys = storedKeys ? JSON.parse(JSON.stringify(storedKeys), BufferJSON.reviver) : {};
         
-        const saveCreds = async () => {
-            const MAX_RETRIES = 3;
-            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-                let saveClient;
-                try {
-                    saveClient = await pool.connect();
-
-                    const serializedCreds = JSON.parse(JSON.stringify(creds, BufferJSON.replacer));
-                    const serializedKeys = JSON.parse(JSON.stringify(keys, BufferJSON.replacer));
-
-                    let phoneNumber = currentPhoneNumber;
-                    if (creds.me?.id) {
-                        phoneNumber = creds.me.id.split(':')[0];
-                    }
-
-                    await saveClient.query(`
-                        INSERT INTO whatsapp_auth (id, creds, keys, phone_number, updated_at)
-                        VALUES ($1, $2, $3, $4, NOW())
-                        ON CONFLICT (id) 
-                        DO UPDATE SET 
-                            creds = $2, 
-                            keys = $3,
-                            phone_number = COALESCE($4, whatsapp_auth.phone_number),
-                            updated_at = NOW()
-                    `, ['main_session', serializedCreds, serializedKeys, phoneNumber]);
-
-                    console.log('💾 Auth saved to Supabase');
-                    return;
-
-                } catch (error) {
-                    console.error(`⚠️ Save attempt ${attempt}/${MAX_RETRIES} failed: ${error.message}`);
-                    if (saveClient) saveClient.release();
-                    if (attempt < MAX_RETRIES) {
-                        await new Promise(r => setTimeout(r, 2000 * attempt));
-                    }
-                }
-            }
-            console.error('⚠️ Could not save creds after 3 attempts — continuing anyway');
-        };
-        
-        return {
-            state: { 
-                creds, 
-                keys: {
-                    get: (type, ids) => {
-                        const data = {};
-                        for (const id of ids) {
-                            const key = `${type}-${id}`;
-                            if (keys[key]) {
-                                data[id] = keys[key];
-                            }
-                        }
-                        return data;
-                    },
-                    
-                    set: (data) => {
-                        for (const category in data) {
-                            for (const id in data[category]) {
-                                const key = `${category}-${id}`;
-                                const value = data[category][id];
-                                if (value) {
-                                    keys[key] = value;
-                                } else {
-                                    delete keys[key];
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            saveCreds,
-            savePhoneNumber: (phoneNumber) => savePhoneNumber(pool, phoneNumber),
-            clearSessionLock: () => clearSessionLock(pool),
-            closeConnection: async () => {
-                console.log('⚠️  Connection pool will remain open');
-            }
-        };
-        
-    } finally {
-        client.release();
+    } else {
+        console.log('📝 No existing auth - initializing new session');
+        creds = initAuthCreds();
+        keys = {};
     }
+    
+    const saveCreds = async () => {
+        const MAX_RETRIES = 3;
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            let saveClient;
+            try {
+                saveClient = await pool.connect();
+
+                const serializedCreds = JSON.parse(JSON.stringify(creds, BufferJSON.replacer));
+                const serializedKeys = JSON.parse(JSON.stringify(keys, BufferJSON.replacer));
+
+                let phoneNumber = currentPhoneNumber;
+                if (creds.me?.id) {
+                    phoneNumber = creds.me.id.split(':')[0];
+                }
+
+                await saveClient.query(`
+                    INSERT INTO whatsapp_auth (id, creds, keys, phone_number, updated_at)
+                    VALUES ($1, $2, $3, $4, NOW())
+                    ON CONFLICT (id) 
+                    DO UPDATE SET 
+                        creds = $2, 
+                        keys = $3,
+                        phone_number = COALESCE($4, whatsapp_auth.phone_number),
+                        updated_at = NOW()
+                `, ['main_session', serializedCreds, serializedKeys, phoneNumber]);
+
+                console.log('💾 Auth saved to Supabase');
+                return;
+
+            } catch (error) {
+                console.error(`⚠️ Save attempt ${attempt}/${MAX_RETRIES} failed: ${error.message}`);
+                if (saveClient) saveClient.release();
+                if (attempt < MAX_RETRIES) {
+                    await new Promise(r => setTimeout(r, 2000 * attempt));
+                }
+            }
+        }
+        console.error('⚠️ Could not save creds after 3 attempts — continuing anyway');
+    };
+    
+    return {
+        state: { 
+            creds, 
+            keys: {
+                get: (type, ids) => {
+                    const data = {};
+                    for (const id of ids) {
+                        const key = `${type}-${id}`;
+                        if (keys[key]) {
+                            data[id] = keys[key];
+                        }
+                    }
+                    return data;
+                },
+                
+                set: (data) => {
+                    for (const category in data) {
+                        for (const id in data[category]) {
+                            const key = `${category}-${id}`;
+                            const value = data[category][id];
+                            if (value) {
+                                keys[key] = value;
+                            } else {
+                                delete keys[key];
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        saveCreds,
+        savePhoneNumber: (phoneNumber) => savePhoneNumber(pool, phoneNumber),
+        clearSessionLock: () => clearSessionLock(pool),
+        closeConnection: async () => {
+            console.log('⚠️  Connection pool will remain open');
+        }
+    };
 }
 
 // Graceful shutdown
