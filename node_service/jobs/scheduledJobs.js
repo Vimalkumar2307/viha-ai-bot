@@ -339,12 +339,13 @@ function registerScheduledJobs() {
     }, { timezone: 'Asia/Kolkata' });
     console.log('✅ Evening summary scheduled at 9:00 PM IST');
 
+
     // TEST job — 9:40 PM IST (temporary, remove after testing)
-    cron.schedule('40 21 * * *', async () => {
+    cron.schedule('10 22 * * *', async () => {
         console.log('⏰ TEST: Sending evening summary to wife...');
         await sendEveningSummary();
     }, { timezone: 'Asia/Kolkata' });
-    console.log('✅ TEST summary scheduled at 9:40 PM IST');
+    console.log('✅ TEST summary scheduled at 10:10 PM IST');
 
     // Weekly report — Every Monday 8:00 AM IST
     cron.schedule('0 8 * * 1', async () => {
