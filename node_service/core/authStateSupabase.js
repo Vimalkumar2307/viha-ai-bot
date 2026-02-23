@@ -149,13 +149,28 @@ async function useSupabaseAuthState(dbUrl) {
         console.log('');
     }
     
-    const client = await pool.connect();
+    let client;
+    let authResult;
+    const MAX_RETRIES = 3;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            client = await pool.connect();
+            authResult = await client.query(
+                'SELECT creds, keys, phone_number FROM whatsapp_auth WHERE id = $1',
+                ['main_session']
+            );
+            client.release();
+            break;
+        } catch (error) {
+            if (client) client.release();
+            console.error(`⚠️ loadAuth attempt ${attempt}/${MAX_RETRIES} failed: ${error.message}`);
+            if (attempt === MAX_RETRIES) throw error;
+            await new Promise(r => setTimeout(r, 2000 * attempt));
+        }
+    }
     
     try {
-        const result = await client.query(
-            'SELECT creds, keys, phone_number FROM whatsapp_auth WHERE id = $1',
-            ['main_session']
-        );
+        const result = authResult;
         
         let creds, keys, currentPhoneNumber = null;
         

@@ -7,6 +7,7 @@ import re
 from datetime import datetime
 from db.connection import get_db_connection
 from dateutil import parser as date_parser
+import os
 
 
 def save_or_update_lead(customer_number: str, response: dict, status: str = None, push_name: str = ""):
@@ -19,6 +20,13 @@ def save_or_update_lead(customer_number: str, response: dict, status: str = None
         response: Full bot response dict (from bot.chat())
         status: Lead status override. If None, determined from response.
     """
+    # Never save bot's own number or admin number as a lead
+    BOT_NUMBER = os.getenv("BOT_NUMBER", "")
+    ADMIN_NUMBER = os.getenv("WIFE_NUMBER", "919865204829@s.whatsapp.net").replace("@s.whatsapp.net", "")
+    if customer_number in (BOT_NUMBER, ADMIN_NUMBER):
+        print(f"    ⚠️  Skipping lead save for bot/admin number: {customer_number}")
+        return
+
     try:
         req = response.get("customer_requirements")
 
