@@ -118,8 +118,11 @@ async function processMessageWithLLM(jid, messageText, userId, pushName = '') {
 
                 const customerNumber = jid.split('@')[0];
                 if (!alertedCustomers.has(customerNumber)) {
-                    await alertWife(customerNumber, llmResponse, 'PRODUCTS_SHOWN', pushName);
                     alertedCustomers.add(customerNumber);
+                    // Wait 5 seconds for session to stabilize before alerting wife
+                    setTimeout(async () => {
+                        await alertWife(customerNumber, llmResponse, 'PRODUCTS_SHOWN', pushName);
+                    }, 5000);
                 }
             } else {
                 await sendTextMessage(jid, "Let me check available options for you...");
@@ -216,6 +219,11 @@ async function handleIncomingMessage(message) {
 
             console.log(`   Original: "${msg}"`);
             console.log(`   Uppercase: "${msgUpper}"`);
+
+            if (!msg || msg === '') {
+                console.log('⚠️ Empty admin message — skipping');
+                return;
+            }
 
             await handleAdminCommand(msgUpper, msg, jid, alertedCustomers, lockedConversationsCache);
             return;
@@ -354,7 +362,6 @@ async function initializeWhatsAppClient() {
             generateHighQualityLinkPreview: true,
             defaultQueryTimeoutMs: 60000,
             getMessage: async (key) => {
-                console.log(`📦 getMessage called for: ${key.id}`);
                 return undefined;
             }
         });
