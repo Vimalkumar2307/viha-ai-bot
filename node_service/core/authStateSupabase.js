@@ -12,14 +12,14 @@ let dbPool = null;
 
 function getPool(dbUrl) {
     if (!dbPool) {
-        dbPool = new Pool({
+         dbPool = new Pool({
             connectionString: dbUrl,
             ssl: { rejectUnauthorized: false },
             max: 3,
             idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 30000,
+            connectionTimeoutMillis: 8000,
             keepAlive: true,
-            keepAliveInitialDelayMillis: 10000
+            keepAliveInitialDelayMillis: 1000
         });
         
         console.log('✅ Database connection pool created (max 3 connections)');
@@ -75,7 +75,7 @@ async function checkExistingSession(pool) {
             if (client) client.release();
             console.error(`⚠️ checkExistingSession attempt ${attempt}/${MAX_RETRIES} failed: ${error.message}`);
             if (attempt < MAX_RETRIES) {
-                await new Promise(r => setTimeout(r, 2000 * attempt));
+                await new Promise(r => setTimeout(r, 1000 * attempt));
             }
         }
     }

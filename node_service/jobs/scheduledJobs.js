@@ -332,6 +332,13 @@ function registerScheduledJobs() {
     }, { timezone: 'Asia/Kolkata' });
     console.log('✅ Morning briefing scheduled at 8:00 AM IST');
 
+    // Morning briefing — 9:15 AM IST (daily)
+    cron.schedule('15 9 * * *', async () => {
+        console.log('⏰ Sending morning briefing to wife...');
+        await sendMorningBriefing();
+    }, { timezone: 'Asia/Kolkata' });
+    console.log('✅ Morning briefing scheduled at 9:15 AM IST');
+
     // Evening summary — 9:00 PM IST (daily)
     cron.schedule('0 21 * * *', async () => {
         console.log('⏰ Sending evening summary to wife...');
