@@ -444,8 +444,16 @@ async function initializeWhatsAppClient() {
                             console.error(`⚠️ Reconnect attempt ${reconnectAttempts} failed: ${err.message} — will retry`);
                         }
                     }, delay);
-                } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-                    console.log('❌ Max reconnection attempts reached.');
+                 } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                    console.log('❌ Max reconnection attempts reached. Retrying in 5 minutes...');
+                    reconnectAttempts = 0;
+                    setTimeout(async () => {
+                        try {
+                            await initializeWhatsAppClient();
+                        } catch (err) {
+                            console.error('⚠️ Auto-recovery failed:', err.message);
+                        }
+                    }, 5 * 60 * 1000);
                 } else {
                     console.log('⏳ Waiting for new connection...');
                 }
@@ -513,7 +521,7 @@ async function main() {
         startWebServer();
         await checkLLMOnStartup();
         await initializeWhatsAppClient();
-        registerScheduledJobs();
+        // registerScheduledJobs() is called inside initializeWhatsAppClient on 'open' event
 
         isInitialized  = true;
         isInitializing = false;

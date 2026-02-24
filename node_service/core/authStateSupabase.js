@@ -38,7 +38,7 @@ function getPool(dbUrl) {
             } catch (err) {
                 if (pingClient) pingClient.release();
             }
-        }, 4 * 60 * 1000);
+        }, 2 * 60 * 1000);
     }
     
     return dbPool;
