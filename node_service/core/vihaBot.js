@@ -332,13 +332,6 @@ async function initializeWhatsAppClient() {
 
         const logger = pino({ level: 'silent' });
         
-        // Suppress Baileys internal console output
-        const originalConsoleLog = console.log;
-        console.log = (...args) => {
-            const msg = args[0]?.toString() || '';
-            if (msg.includes('Closing session') || msg.includes('SessionEntry')) return;
-            originalConsoleLog(...args);
-        };
         const SUPABASE_DB_URL = process.env.SUPABASE_DB_URL;
         const IS_PRODUCTION = !!process.env.RENDER_SERVICE_NAME;
 
