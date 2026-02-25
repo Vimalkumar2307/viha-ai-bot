@@ -240,6 +240,13 @@ async function handleIncomingMessage(message) {
             const customerNumber = jid.split('@')[0];
             if (isAdminMessage(jid)) return;
 
+            // Skip bot's own number to prevent self-locking
+            const BOT_NUMBER = process.env.BOT_NUMBER || '';
+            if (BOT_NUMBER && customerNumber === BOT_NUMBER) {
+                console.log('⚠️ Skipping — bot own number, not a customer');
+                return;
+            }
+
             if (lockedConversationsCache.has(customerNumber)) {
                 console.log(`🔕 Already locked ${customerNumber} in this session, skipping`);
                 return;
