@@ -33,7 +33,15 @@ class ProductionVihaBot:
             customer_requirements dict | None  (for wife alert)
             handoff_reason      str | None
         """
-        config = {"configurable": {"thread_id": user_id}}
+        
+        config = {
+            "configurable": {"thread_id": user_id},
+            "metadata": {
+                "customer_number": user_id,
+                "session": user_id
+            },
+            "tags": [f"customer:{user_id}"]
+        }
 
         print(f"\n{'='*70}")
         print(f"💬 user={user_id}  msg={message[:80]}")
